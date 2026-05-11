@@ -1,145 +1,666 @@
-import { useMemo } from "react";
-import { GRADE_COLORS, GRADE_LABELS } from "./NaverMap.jsx";
+import { useState, useMemo, useRef, useEffect } from "react";
+import SidebarSelect from "./SidebarSelect.jsx";
+import NaverMap from "./NaverMap.jsx";
 
+/* ── 상수 ─────────────────────────────────── */
 const CATEGORIES = [
-  { key: "traffic",     label: "교통",   icon: "🚇" },
-  { key: "safety",      label: "안전",   icon: "🛡️" },
-  { key: "environment", label: "환경",   icon: "🌿" },
-  { key: "medical",     label: "의료",   icon: "🏥" },
-  { key: "education",   label: "교육",   icon: "📚" },
+  { key: "comfort", label: "쾌적도", icon: "🌿", color: "#22C55E" },
+  { key: "health", label: "건강", icon: "💙", color: "#3B82F6" },
+  { key: "stress", label: "스트레스", icon: "🟠", color: "#F97316" },
+  { key: "hvac", label: "냉난방", icon: "❄️", color: "#60A5FA" },
+  { key: "security", label: "치안", icon: "🛡️", color: "#8B5CF6" },
 ];
 
-// adm_cd 기반 시드로 재현 가능한 임의 값 생성
+const CATEGORY_DESC = {
+  comfort:
+    "대기 환경, 소음 수준, 온 ·습도 등을 종합하여 주거 쾌적도를 평가합니다.",
+  health: "의료 접근성, 운동 시설, 식품 환경 등 건강 관련 지표를 평가합니다.",
+  stress: "교통 혼잡, 소음, 인구 밀도 등 스트레스 유발 요인을 평가합니다.",
+  hvac: "여름·겨울 냉난방 필요도 및 에너지 효율 환경을 평가합니다.",
+  security: "범죄율, CCTV 설치 현황, 가로등 밀도 등 치안 지표를 평가합니다.",
+};
+
+/* ── 유틸 ─────────────────────────────────── */
 const seededRand = (seed, offset = 0) => {
   const x = Math.sin(seed * 9301 + offset * 49297 + 233) * 10000;
   return x - Math.floor(x);
 };
 
-const genCategoryScores = (baseScore, adm_cd) => {
+const getGradeInfo = (score) => {
+  if (score >= 90) return { label: "매우 우수", color: "#059669" };
+  if (score >= 80) return { label: "우수", color: "#3B82F6" };
+  if (score >= 70) return { label: "양호", color: "#7C3AED" };
+  if (score >= 60) return { label: "보통", color: "#F59E0B" };
+  if (score >= 50) return { label: "미흡", color: "#F97316" };
+  return { label: "불량", color: "#EF4444" };
+};
+
+const genCategoryScores = (base, adm_cd) => {
   const seed = parseInt(adm_cd, 10) || 1;
-  return CATEGORIES.map((cat, i) => {
+  return CATEGORIES.map((_, i) => {
     const noise = (seededRand(seed, i) - 0.5) * 30;
-    return { ...cat, score: Math.min(100, Math.max(0, Math.round(baseScore + noise))) };
+    return Math.min(100, Math.max(0, Math.round(base + noise)));
   });
 };
 
-const genMonthlyScores = (baseScore, adm_cd, year) => {
-  const seed = (parseInt(adm_cd, 10) || 1) + year;
+const genMonthlyScores = (base, adm_cd, year) => {
+  const seed = (parseInt(adm_cd, 10) || 1) + Number(year);
   return Array.from({ length: 12 }, (_, i) => {
     const noise = (seededRand(seed, i + 20) - 0.5) * 20;
-    return Math.min(100, Math.max(0, Math.round(baseScore + noise)));
+    return Math.min(100, Math.max(0, Math.round(base + noise)));
   });
 };
 
-const gradeFor = (score) =>
-  score >= 80 ? 1 : score >= 60 ? 2 : score >= 40 ? 3 : score >= 20 ? 4 : 5;
+/* ── 원형 진행 표시 ───────────────────────── */
+function CircleScore({ score, size = 100, stroke = 10 }) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - score / 100);
+  const { color } = getGradeInfo(score);
+  const numFontSize =
+    size >= 140 ? "1.75rem" : size >= 110 ? "1.35rem" : "1.15rem";
+  const unitFontSize = size >= 140 ? "0.7rem" : "0.6rem";
 
-export default function DetailPage({ gu, dong, adm_cd, score, grade, year, month, onBack }) {
-  const categoryScores = useMemo(
+  return (
+    <div className="cscore" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="#f0f0f0"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="cscore__inner">
+        <span className="cscore__num" style={{ fontSize: numFontSize }}>
+          {score}
+        </span>
+        <span className="cscore__unit" style={{ fontSize: unitFontSize }}>
+          /100
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ── 라인 차트 ────────────────────────────── */
+function LineChart({ scores, currentMonth }) {
+  const PAD = { t: 24, b: 28, l: 28, r: 10 };
+  const W = 360,
+    H = 160;
+  const iw = W - PAD.l - PAD.r;
+  const ih = H - PAD.t - PAD.b;
+  const n = scores.length;
+  const minV = Math.min(...scores) - 8;
+  const maxV = Math.max(...scores) + 8;
+
+  const px = (i) => PAD.l + (i / (n - 1)) * iw;
+  const py = (v) => PAD.t + ih - ((v - minV) / (maxV - minV)) * ih;
+
+  const linePath = scores
+    .map((s, i) => `${i === 0 ? "M" : "L"}${px(i)},${py(s)}`)
+    .join(" ");
+  const areaPath = `${linePath} L${px(n - 1)},${H - PAD.b} L${px(0)},${H - PAD.b}Z`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H }}>
+      {[0, 0.33, 0.66, 1].map((t) => {
+        const yv = PAD.t + ih * (1 - t);
+        return (
+          <line
+            key={t}
+            x1={PAD.l}
+            y1={yv}
+            x2={W - PAD.r}
+            y2={yv}
+            stroke="#f0f0f0"
+            strokeWidth="1"
+          />
+        );
+      })}
+      <path d={areaPath} fill="#00B493" fillOpacity="0.07" />
+      <path
+        d={linePath}
+        fill="none"
+        stroke="#00B493"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {scores.map((s, i) => {
+        const cur = i + 1 === Number(currentMonth);
+        return (
+          <g key={i}>
+            <circle
+              cx={px(i)}
+              cy={py(s)}
+              r={cur ? 5 : 3.5}
+              fill={cur ? "#00B493" : "#fff"}
+              stroke="#00B493"
+              strokeWidth="2"
+            />
+            <text
+              x={px(i)}
+              y={py(s) - 9}
+              textAnchor="middle"
+              fontSize="10"
+              fill={cur ? "#00B493" : "#9ca3af"}
+              fontWeight={cur ? "700" : "400"}
+            >
+              {s}
+            </text>
+            <text
+              x={px(i)}
+              y={H - PAD.b + 14}
+              textAnchor="middle"
+              fontSize="10"
+              fill={cur ? "#00B493" : "#9ca3af"}
+              fontWeight={cur ? "700" : "400"}
+            >
+              {i + 1}월
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── 레이더 차트 ──────────────────────────── */
+function RadarChart({ scores }) {
+  const SIZE = 220,
+    center = SIZE / 2,
+    maxR = center - 38,
+    n = scores.length;
+  const ang = (i) => (i / n) * 2 * Math.PI - Math.PI / 2;
+  const pt = (i, r) => [
+    center + r * Math.cos(ang(i)),
+    center + r * Math.sin(ang(i)),
+  ];
+
+  const dataPts = scores.map((s, i) => pt(i, (s / 100) * maxR));
+  const poly = dataPts.map(([x, y]) => `${x},${y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: SIZE, height: SIZE }}>
+      {[0.25, 0.5, 0.75, 1].map((l) => (
+        <polygon
+          key={l}
+          points={Array.from({ length: n }, (_, i) => pt(i, l * maxR))
+            .map(([x, y]) => `${x},${y}`)
+            .join(" ")}
+          fill="none"
+          stroke="#e5e7eb"
+          strokeWidth="1"
+        />
+      ))}
+      {Array.from({ length: n }, (_, i) => {
+        const [x, y] = pt(i, maxR);
+        return (
+          <line
+            key={i}
+            x1={center}
+            y1={center}
+            x2={x}
+            y2={y}
+            stroke="#e5e7eb"
+            strokeWidth="1"
+          />
+        );
+      })}
+      <polygon
+        points={poly}
+        fill="#00B493"
+        fillOpacity="0.2"
+        stroke="#00B493"
+        strokeWidth="2"
+      />
+      {dataPts.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="4" fill="#00B493" />
+      ))}
+      {CATEGORIES.map((cat, i) => {
+        const [lx, ly] = pt(i, maxR + 20);
+        return (
+          <text
+            key={i}
+            x={lx}
+            y={ly}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="11"
+            fill="#6b7280"
+            fontWeight="500"
+          >
+            {cat.label}
+          </text>
+        );
+      })}
+      {dataPts.map(([x, y], i) => (
+        <text
+          key={i}
+          x={x}
+          y={y - 9}
+          textAnchor="middle"
+          fontSize="10"
+          fill="#00B493"
+          fontWeight="700"
+        >
+          {scores[i]}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+/* ── 버터플라이 비교 바 ─────────────────────── */
+function CompareBar({ label, icon, scoreA, scoreB }) {
+  const { color: colorA } = getGradeInfo(scoreA);
+  const { color: colorB } = getGradeInfo(scoreB);
+  return (
+    <div className="cmp-bar">
+      <div className="cmp-bar__side cmp-bar__side--a">
+        <span className="cmp-bar__score">{scoreA}</span>
+        <div className="cmp-bar__track cmp-bar__track--a">
+          <div className="cmp-bar__fill" style={{ width: `${scoreA}%`, background: colorA }} />
+        </div>
+      </div>
+      <div className="cmp-bar__cat">
+        <span className="cmp-bar__icon">{icon}</span>
+        <span className="cmp-bar__label">{label}</span>
+      </div>
+      <div className="cmp-bar__side cmp-bar__side--b">
+        <div className="cmp-bar__track">
+          <div className="cmp-bar__fill" style={{ width: `${scoreB}%`, background: colorB }} />
+        </div>
+        <span className="cmp-bar__score">{scoreB}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── 이중 레이더 차트 ─────────────────────── */
+function CompareRadar({ scoresA, scoresB }) {
+  const SIZE = 220, center = SIZE / 2, maxR = center - 40, n = scoresA.length;
+  const ang = (i) => (i / n) * 2 * Math.PI - Math.PI / 2;
+  const pt = (i, r) => [center + r * Math.cos(ang(i)), center + r * Math.sin(ang(i))];
+
+  const ptsA = scoresA.map((s, i) => pt(i, (s / 100) * maxR));
+  const ptsB = scoresB.map((s, i) => pt(i, (s / 100) * maxR));
+
+  return (
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: SIZE, height: SIZE }}>
+      {[0.25, 0.5, 0.75, 1].map((l) => (
+        <polygon key={l}
+          points={Array.from({ length: n }, (_, i) => pt(i, l * maxR)).map(([x, y]) => `${x},${y}`).join(" ")}
+          fill="none" stroke="#e5e7eb" strokeWidth="1" />
+      ))}
+      {Array.from({ length: n }, (_, i) => {
+        const [x, y] = pt(i, maxR);
+        return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#e5e7eb" strokeWidth="1" />;
+      })}
+      <polygon points={ptsA.map(([x, y]) => `${x},${y}`).join(" ")}
+        fill="#00B493" fillOpacity="0.2" stroke="#00B493" strokeWidth="2" />
+      <polygon points={ptsB.map(([x, y]) => `${x},${y}`).join(" ")}
+        fill="#818CF8" fillOpacity="0.2" stroke="#818CF8" strokeWidth="2" />
+      {ptsA.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="3.5" fill="#00B493" />
+      ))}
+      {ptsB.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="3.5" fill="#818CF8" />
+      ))}
+      {CATEGORIES.map((cat, i) => {
+        const [lx, ly] = pt(i, maxR + 20);
+        return (
+          <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+            fontSize="11" fill="#6b7280" fontWeight="500">
+            {cat.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── 메인 컴포넌트 ────────────────────────── */
+export default function DetailPage({
+  gu,
+  dong,
+  adm_cd,
+  score,
+  grade,
+  year,
+  month,
+  guDongItems,
+  guList = [],
+  selectedGu,
+  onGuChange,
+  onDongChange,
+  gradeData,
+  onBack,
+}) {
+  const [activeTab, setActiveTab] = useState("overall");
+  const [cmpGu, setCmpGu] = useState("");
+  const [cmpDong, setCmpDong] = useState("");
+  const mainRef = useRef(null);
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [dong]);
+
+  const cmpDongOptions = useMemo(
+    () => !cmpGu
+      ? []
+      : (guDongItems ?? [])
+          .filter((item) => item.sggnm === cmpGu)
+          .map((item) => ({ value: item.dongName, label: item.dongName })),
+    [cmpGu, guDongItems],
+  );
+  const cmpItem = useMemo(
+    () => !cmpDong ? null
+      : (guDongItems ?? []).find((item) => item.sggnm === cmpGu && item.dongName === cmpDong),
+    [cmpGu, cmpDong, guDongItems],
+  );
+  const cmpCatScores = useMemo(
+    () => cmpItem ? genCategoryScores(cmpItem.score, cmpItem.adm_cd) : null,
+    [cmpItem],
+  );
+
+  const catScores = useMemo(
     () => genCategoryScores(score, adm_cd),
     [score, adm_cd],
   );
-
-  const monthlyScores = useMemo(
-    () => genMonthlyScores(score, adm_cd, Number(year)),
+  const monthScores = useMemo(
+    () => genMonthlyScores(score, adm_cd, year),
     [score, adm_cd, year],
   );
 
-  const maxMonthly = Math.max(...monthlyScores);
+  const prevScore = monthScores[Number(month) - 2] ?? score;
+  const delta = monthScores[Number(month) - 1] - prevScore;
+
+  const { label: gradeLabel, color: gradeColor } = getGradeInfo(score);
+  const secInfo = getGradeInfo(catScores[4]);
+  const secSeed = parseInt(adm_cd, 10) || 1;
+  const secDelta = Math.round((seededRand(secSeed, 99) - 0.3) * 16);
+  const filteredDongItems = (guDongItems ?? []).filter(
+    (item) => item.sggnm === gu,
+  );
+  const top3 = (guDongItems ?? []).slice(0, 3);
+  const myRank = (guDongItems ?? []).findIndex((i) => i.dongName === dong) + 1;
 
   return (
     <div className="detail-page">
-      {/* 헤더 */}
-      <header className="detail-header">
+      {/* ── 사이드바 ── */}
+      <aside className="dp-sidebar">
         <button className="detail-back" onClick={onBack}>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <path d="M11 4L6 9l5 5" stroke="currentColor" strokeWidth="2"
-              strokeLinecap="round" strokeLinejoin="round" />
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path
+              d="M9 3L4 7.5 9 12"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
-          지도로 돌아가기
+          목록으로 돌아가기
         </button>
-        <span className="detail-header__period">{year}년 {month}월 기준</span>
-      </header>
 
-      <div className="detail-body">
-        {/* 히어로 */}
-        <section className="detail-hero">
-          <div className="detail-hero__location">
-            <span className="detail-hero__gu">{gu}</span>
-            <h1 className="detail-hero__dong">{dong}</h1>
-          </div>
-          <div className="detail-hero__score-wrap">
-            <div className="detail-hero__score">{score}</div>
-            <div
-              className="detail-hero__grade"
-              style={{ background: GRADE_COLORS[grade] }}
-            >
-              {GRADE_LABELS[grade]}
+        <div className="dp-sb-section">
+          <div className="dp-sb-title">구 선택</div>
+          <SidebarSelect
+            value={gu}
+            onChange={(val) => onGuChange?.(val)}
+            options={guList}
+          />
+        </div>
+
+        <div className="dp-sb-section">
+          <div className="dp-sb-title">동 선택</div>
+          <SidebarSelect
+            value={dong}
+            onChange={(val) => onDongChange?.(val)}
+            options={filteredDongItems.map((item) => ({
+              value: item.dongName,
+              label: `${item.sggnm} ${item.dongName}`,
+            }))}
+          />
+        </div>
+
+        <div className="dp-sb-section">
+          <div className="dp-sb-title">선택한 동 정보</div>
+          <div className="dp-sb-info-card">
+            <div className="dp-sb-info-row">
+              <span className="dp-sb-info-label">자치구</span>
+              <span className="dp-sb-info-value">{gu}</span>
+            </div>
+            <div className="dp-sb-info-row">
+              <span className="dp-sb-info-label">행정동</span>
+              <span className="dp-sb-info-value">{dong}</span>
             </div>
           </div>
-        </section>
+        </div>
 
-        {/* 카테고리별 점수 */}
-        <section className="detail-section">
-          <h2 className="detail-section__title">카테고리별 점수</h2>
-          <div className="detail-cats">
-            {categoryScores.map((cat) => {
-              const g = gradeFor(cat.score);
-              return (
-                <div key={cat.key} className="detail-cat">
-                  <div className="detail-cat__top">
-                    <span className="detail-cat__icon">{cat.icon}</span>
-                    <span className="detail-cat__label">{cat.label}</span>
-                    <span
-                      className="detail-cat__score"
-                      style={{ color: GRADE_COLORS[g] }}
-                    >
-                      {cat.score}
-                    </span>
-                  </div>
-                  <div className="detail-cat__bar-bg">
-                    <div
-                      className="detail-cat__bar-fill"
-                      style={{
-                        width: `${cat.score}%`,
-                        background: GRADE_COLORS[g],
-                      }}
-                    />
+        <div className="dp-sb-section">
+          <div className="dp-sb-title">종합 쾌적도 점수</div>
+          <div className="dp-sb-score">
+            <CircleScore score={score} size={90} stroke={9} />
+            <div className="dp-sb-score__grade" style={{ color: gradeColor }}>{gradeLabel}</div>
+            <div className="dp-sb-score__delta">
+              지난 달 대비{" "}
+              <span style={{ color: delta >= 0 ? "#22C55E" : "#EF4444", fontWeight: 700 }}>
+                {delta >= 0 ? `↑ ${delta}점` : `↓ ${Math.abs(delta)}점`}
+              </span>
+            </div>
+            <div className="dp-security">
+              <span>🛡️ 치안</span>
+              <span className="dp-security__grade" style={{ color: secInfo.color }}>{secInfo.label}</span>
+              <span className="dp-security__delta" style={{ color: secDelta >= 0 ? "#22C55E" : "#EF4444" }}>
+                {secDelta >= 0 ? `↑ ${secDelta}점` : `↓ ${Math.abs(secDelta)}점`}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="dp-sb-section">
+          <div className="dp-sb-title">동별 쾌적도 요약</div>
+          <div className="dp-sb-ranking">
+            {top3.map((item, idx) => (
+              <div
+                key={item.adm_cd}
+                className={`dp-sb-rank-item${item.dongName === dong ? " dp-sb-rank-item--active" : ""}`}
+                onClick={() => onDongChange?.(item.dongName)}
+              >
+                <span className="dp-sb-rank-pos">{idx + 1}위</span>
+                <span className="dp-sb-rank-name">{item.dongName}</span>
+                <span className="dp-sb-rank-score">{item.score}점</span>
+              </div>
+            ))}
+            {myRank > 3 && (
+              <div className="dp-sb-rank-item dp-sb-rank-item--active">
+                <span className="dp-sb-rank-pos">{myRank}위</span>
+                <span className="dp-sb-rank-name">{dong}</span>
+                <span className="dp-sb-rank-score">{score}점</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="dp-sb-hint">
+          ⓘ 지표를 선택하면 세부 정보를 확인할 수 있습니다.
+        </div>
+      </aside>
+
+      {/* ── 메인 ── */}
+      <div className="dp-main" ref={mainRef}>
+        <div key={dong} className="dp-main-content">
+          {/* 헤더 */}
+          <div className="dp-main-header">
+            <div>
+              <h2 className="dp-main-title">{dong} 분석 결과</h2>
+              <p className="dp-main-period">
+                {year}년 {month}월 기준
+              </p>
+            </div>
+            <div className="dp-tab-group">
+              {["overall", "compare"].map((tab) => (
+                <button
+                  key={tab}
+                  className={`dp-tab${activeTab === tab ? " dp-tab--active" : ""}`}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab === "overall" ? "종합 점수" : "지표 비교"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 지도 (종합 탭에서만) */}
+          {activeTab === "overall" && (
+            <div className="dp-detail-map">
+              <NaverMap
+                selectedGu={gu}
+                selectedDong={dong}
+                gradeData={gradeData}
+                onDongClick={(clickedGu, clickedDong) => {
+                  if (clickedGu !== gu) { onGuChange?.(clickedGu); return; }
+                  onDongChange?.(clickedDong);
+                }}
+              />
+            </div>
+          )}
+
+          {activeTab === "overall" ? (
+            <>
+              {/* 점수 카드 */}
+              <div className="dp-scores">
+                {CATEGORIES.slice(0, 5).map((cat, i) => {
+                  const s = catScores[i];
+                  const seed = parseInt(adm_cd, 10) || 1;
+                  const d = Math.round((seededRand(seed, i + 60) - 0.4) * 14);
+                  const { label: gl, color: gc } = getGradeInfo(s);
+                  return (
+                    <div key={cat.key} className="dp-score-card">
+                      <div className="dp-score-card__header">
+                        <span style={{ fontSize: "1.1rem" }}>{cat.icon}</span>
+                        <span className="dp-score-card__title">{cat.label}</span>
+                      </div>
+                      <CircleScore score={s} size={100} stroke={10} />
+                      <div className="dp-score-card__grade" style={{ color: gc }}>{gl}</div>
+                      <div className="dp-score-card__delta" style={{ color: d >= 0 ? "#22C55E" : "#EF4444" }}>
+                        {d >= 0 ? `↑ ${d}점` : `↓ ${Math.abs(d)}점`}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 차트 */}
+              <div className="dp-charts">
+                <div className="dp-chart-card">
+                  <div className="dp-chart-card__title">월별 종합 점수 추이</div>
+                  <LineChart scores={monthScores} currentMonth={month} />
+                </div>
+                <div className="dp-chart-card">
+                  <div className="dp-chart-card__title">지표별 점수 분포</div>
+                  <div style={{ display: "flex", justifyContent: "center", paddingTop: 4 }}>
+                    <RadarChart scores={catScores} />
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+              </div>
 
-        {/* 월별 추이 */}
-        <section className="detail-section">
-          <h2 className="detail-section__title">{year}년 월별 점수 추이</h2>
-          <div className="detail-trend">
-            {monthlyScores.map((s, i) => {
-              const g = gradeFor(s);
-              const isCurrent = i + 1 === Number(month);
-              return (
-                <div key={i} className="detail-trend__col">
-                  <span className="detail-trend__val">{s}</span>
-                  <div className="detail-trend__bar-bg">
-                    <div
-                      className={`detail-trend__bar-fill${isCurrent ? " detail-trend__bar-fill--current" : ""}`}
-                      style={{
-                        height: `${(s / maxMonthly) * 100}%`,
-                        background: GRADE_COLORS[g],
-                      }}
-                    />
+              {/* 지표 설명 */}
+              <div className="dp-descs">
+                {CATEGORIES.map((cat) => (
+                  <div key={cat.key} className="dp-desc-card">
+                    <span className="dp-desc-card__icon">{cat.icon}</span>
+                    <div>
+                      <div className="dp-desc-card__label">{cat.label}</div>
+                      <div className="dp-desc-card__text">{CATEGORY_DESC[cat.key]}</div>
+                    </div>
                   </div>
-                  <span className={`detail-trend__month${isCurrent ? " detail-trend__month--current" : ""}`}>
-                    {i + 1}월
-                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            /* ── 지표 비교 탭 ── */
+            <div className="cmp-view">
+              {/* 동 선택 */}
+              <div className="cmp-selector">
+                <div className="cmp-selector__current">
+                  <span className="cmp-selector__tag cmp-selector__tag--a">현재</span>
+                  <span className="cmp-selector__name">{dong}</span>
+                  <span className="cmp-selector__gu">{gu}</span>
                 </div>
-              );
-            })}
-          </div>
-        </section>
+                <span className="cmp-selector__vs">VS</span>
+                <div className="cmp-selector__picks">
+                  <SidebarSelect
+                    value={cmpGu}
+                    onChange={(val) => { setCmpGu(val); setCmpDong(""); }}
+                    options={guList}
+                    placeholder="구 선택"
+                  />
+                  <SidebarSelect
+                    value={cmpDong}
+                    onChange={setCmpDong}
+                    options={cmpDongOptions}
+                    placeholder="동 선택"
+                    disabled={!cmpGu}
+                  />
+                </div>
+              </div>
+
+              {cmpItem ? (
+                <div className="cmp-body">
+                  {/* 버터플라이 차트 */}
+                  <div className="cmp-bars">
+                    <div className="cmp-cols-header">
+                      <span className="cmp-cols-header__a">{dong}</span>
+                      <span className="cmp-cols-header__mid">지표</span>
+                      <span className="cmp-cols-header__b">{cmpDong}</span>
+                    </div>
+                    <CompareBar label="종합" icon="⭐" scoreA={score} scoreB={cmpItem.score} />
+                    <div className="cmp-divider" />
+                    {CATEGORIES.map((cat, i) => (
+                      <CompareBar key={cat.key} label={cat.label} icon={cat.icon}
+                        scoreA={catScores[i]} scoreB={cmpCatScores[i]} />
+                    ))}
+                  </div>
+
+                  {/* 레이더 비교 */}
+                  <div className="cmp-radar">
+                    <div className="cmp-radar__legend">
+                      <span className="cmp-radar__dot" style={{ background: "#00B493" }} />
+                      <span className="cmp-radar__name">{dong}</span>
+                      <span className="cmp-radar__dot" style={{ background: "#818CF8" }} />
+                      <span className="cmp-radar__name">{cmpDong}</span>
+                    </div>
+                    <CompareRadar scoresA={catScores} scoresB={cmpCatScores} />
+                  </div>
+                </div>
+              ) : (
+                <div className="cmp-empty">
+                  <span className="cmp-empty__icon">🔍</span>
+                  <span className="cmp-empty__text">비교할 동을 선택해주세요</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* dp-main-content */}
       </div>
+      {/* dp-main */}
     </div>
   );
 }

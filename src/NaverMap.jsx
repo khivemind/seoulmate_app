@@ -36,6 +36,30 @@ const getDongCentroid = (feature) => {
   return [lat / coords.length, lng / coords.length];
 };
 
+const getDongZoom = (feature) => {
+  const geometry = feature.geometry;
+  let allCoords = [];
+  if (geometry.type === "Polygon") {
+    allCoords = geometry.coordinates[0];
+  } else if (geometry.type === "MultiPolygon") {
+    geometry.coordinates.forEach((pc) => allCoords.push(...pc[0]));
+  }
+  if (!allCoords.length) return 15;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  allCoords.forEach(([lo, la]) => {
+    if (la < minLat) minLat = la;
+    if (la > maxLat) maxLat = la;
+    if (lo < minLng) minLng = lo;
+    if (lo > maxLng) maxLng = lo;
+  });
+  const maxSpan = Math.max(maxLat - minLat, maxLng - minLng);
+  // 동 크기(도 단위)에 따라 줌 레벨 결정 — 뷰포트 ~900px 기준
+  if (maxSpan > 0.06) return 13;
+  if (maxSpan > 0.03) return 14;
+  if (maxSpan > 0.012) return 15;
+  return 16;
+};
+
 const parseDongName = (adm_nm) => {
   const parts = adm_nm.split(" ");
   return parts[parts.length - 1];
@@ -115,6 +139,11 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
   // stale closure 방지 — 항상 최신 onDongClick을 가리킴
   const onDongClickRef  = useRef(onDongClick);
   useEffect(() => { onDongClickRef.current = onDongClick; }, [onDongClick]);
+  // syncStrokeWeights에서 최신 선택 상태 참조
+  const selectedGuRef   = useRef(selectedGu);
+  const selectedDongRef = useRef(selectedDong);
+  useEffect(() => { selectedGuRef.current = selectedGu; }, [selectedGu]);
+  useEffect(() => { selectedDongRef.current = selectedDong; }, [selectedDong]);
 
   useEffect(() => {
     const { naver } = window;
@@ -129,8 +158,11 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
     const syncStrokeWeights = () => {
       if (animatingRef.current) return; // 애니메이션 중 425개 setOptions 방지
       const w = getStrokeWeight(map.getZoom());
-      polygonItemsRef.current.forEach(({ polygon }) => {
-        polygon.setOptions({ strokeWeight: w });
+      const gu = selectedGuRef.current;
+      const dong = selectedDongRef.current;
+      polygonItemsRef.current.forEach(({ polygon, sggnm, dongName }) => {
+        const isHighlighted = gu && dong && sggnm === gu && dongName === dong;
+        polygon.setOptions({ strokeWeight: isHighlighted ? Math.min(w * 2, 5) : w });
       });
     };
     syncStrokeRef.current = syncStrokeWeights;
@@ -161,7 +193,7 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
         naver.maps.Event.addListener(polygon, "click", () => {
           onDongClickRef.current?.(sggnm, dongName);
         });
-        polygonItemsRef.current.push({ polygon, sggnm, dongName });
+        polygonItemsRef.current.push({ polygon, sggnm, dongName, adm_cd });
       };
 
       if (geometry.type === "Polygon") {
@@ -181,17 +213,41 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
     };
   }, []);
 
-  // 폴리곤 표시/숨김
+  // 레이어 변경 시 폴리곤 색상 업데이트
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    polygonItemsRef.current.forEach(({ polygon, adm_cd }) => {
+      const grade = gradeData?.[adm_cd] ?? 3;
+      polygon.setOptions({
+        fillColor:   GRADE_MAP_COLORS[grade] ?? GRADE_MAP_COLORS[3],
+        strokeColor: GRADE_COLORS[grade]     ?? GRADE_COLORS[3],
+      });
+    });
+  }, [gradeData]);
+
+  // 폴리곤 표시/숨김 및 하이라이트
   useEffect(() => {
     const map = mapInstance.current;
     if (!map) return;
+    const baseW = getStrokeWeight(map.getZoom());
     polygonItemsRef.current.forEach(({ polygon, sggnm, dongName }) => {
-      let visible = true;
       if (selectedGu) {
-        visible = sggnm === selectedGu;
-        if (visible && selectedDong) visible = dongName === selectedDong;
+        const inGu = sggnm === selectedGu;
+        polygon.setMap(inGu ? map : null);
+        if (inGu) {
+          const isSelected = selectedDong ? dongName === selectedDong : false;
+          if (isSelected) {
+            polygon.setOptions({ fillOpacity: 0.65, strokeOpacity: 1.0, strokeWeight: Math.min(baseW * 2, 5), zIndex: 10 });
+          } else if (selectedDong) {
+            polygon.setOptions({ fillOpacity: 0.15, strokeOpacity: 0.3, strokeWeight: baseW, zIndex: 1 });
+          } else {
+            polygon.setOptions({ fillOpacity: 0.3, strokeOpacity: 0.6, strokeWeight: baseW, zIndex: 1 });
+          }
+        }
+      } else {
+        polygon.setMap(map);
+        polygon.setOptions({ fillOpacity: 0.3, strokeOpacity: 0.6, strokeWeight: baseW, zIndex: 1 });
       }
-      polygon.setMap(visible ? map : null);
     });
   }, [selectedGu, selectedDong]);
 
@@ -211,7 +267,7 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
       if (!feature) return;
       const c = getDongCentroid(feature);
       if (!c) return;
-      flyTo(map, naver, c[0], c[1], 15, flyTimersRef, animatingRef, done);
+      flyTo(map, naver, c[0], c[1], getDongZoom(feature), flyTimersRef, animatingRef, done);
     } else if (selectedGu) {
       const features = seoulAdmdongGeoJSON.features.filter(
         (f) => f.properties.sggnm === selectedGu,

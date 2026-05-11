@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 
-export default function FilterSelect({ value, onChange, options, placeholder, disabled }) {
+export default function FilterSelect({ value, onChange, options, placeholder, disabled, showEmpty = true, className = "" }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -23,7 +23,7 @@ export default function FilterSelect({ value, onChange, options, placeholder, di
 
   return (
     <div
-      className={`fsel${open ? " fsel--open" : ""}${disabled ? " fsel--disabled" : ""}`}
+      className={`fsel${open ? " fsel--open" : ""}${disabled ? " fsel--disabled" : ""}${className ? " " + className : ""}`}
       ref={containerRef}
     >
       <button
@@ -43,12 +43,14 @@ export default function FilterSelect({ value, onChange, options, placeholder, di
 
       <div className="fsel__panel">
         <ul className="fsel__list">
-          <li
-            className={`fsel__item fsel__item--placeholder${!value ? " fsel__item--selected" : ""}`}
-            onClick={() => handleSelect("")}
-          >
-            {placeholder}
-          </li>
+          {showEmpty && (
+            <li
+              className={`fsel__item fsel__item--placeholder${!value ? " fsel__item--selected" : ""}`}
+              onClick={() => handleSelect("")}
+            >
+              {placeholder}
+            </li>
+          )}
           {options.map((o) => (
             <li
               key={o.value}

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import seoulAdmdongGeoJSON from "./seoul-admdong.json";
 
 export const GRADE_COLORS = {
+  0: "#9ca3af",
   1: "#22C55E",
   2: "#84CC16",
   3: "#EAB308",
@@ -10,6 +11,7 @@ export const GRADE_COLORS = {
 };
 
 const GRADE_MAP_COLORS = {
+  0: "#e5e7eb",
   1: "#86EFAC",
   2: "#BEF264",
   3: "#FDE047",
@@ -18,6 +20,7 @@ const GRADE_MAP_COLORS = {
 };
 
 export const GRADE_LABELS = {
+  0: "데이터 없음",
   1: "1등급",
   2: "2등급",
   3: "3등급",

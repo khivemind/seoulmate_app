@@ -460,7 +460,10 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
   border: 1px solid rgba(0, 0, 0, 0.06);
   pointer-events: none;
-  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .map-legend__item {
@@ -501,7 +504,10 @@ body {
   flex-direction: column;
   gap: 12px;
   animation: card-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 @keyframes card-in {
@@ -531,7 +537,9 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .dong-info-card__close:hover {
   background: rgba(0, 0, 0, 0.14);
@@ -1050,11 +1058,7 @@ code {
   gap: 8px;
   padding: 7px 9px;
   border-radius: 8px;
-  cursor: pointer;
   transition: background 0.14s;
-}
-.dp-sb-rank-item:hover {
-  background: var(--accent-bg);
 }
 
 .dp-sb-rank-item--active {
@@ -1188,12 +1192,12 @@ code {
   flex: 1;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 14px 12px;
+  border-radius: 14px;
+  padding: 12px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -1215,6 +1219,37 @@ code {
   font-size: 1rem;
   font-weight: 700;
   line-height: 1;
+}
+
+.dp-score-card__info {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--text);
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.dp-score-card__tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2028;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+
+.dp-score-card__info:hover .dp-score-card__tooltip {
+  opacity: 1;
 }
 
 .dp-score-card__grade {
@@ -1311,8 +1346,8 @@ code {
 
 /* ── 지표 설명 ── */
 .dp-descs {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   padding-bottom: 8px;
   flex-shrink: 0;
@@ -1572,14 +1607,15 @@ code {
 .cmp-cols-header__a {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #00B493;
-  text-align: right;
+  color: #00b493;
+  text-align: center;
 }
 
 .cmp-cols-header__b {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #818CF8;
+  color: #818cf8;
+  text-align: center;
 }
 
 .cmp-cols-header__mid {
@@ -1697,6 +1733,16 @@ code {
   margin-left: -6px;
 }
 
+.cmp-trend__legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 4px;
+}
+
 .cmp-empty {
   flex: 1;
   display: flex;
@@ -1716,4 +1762,195 @@ code {
 .cmp-empty__text {
   font-size: 0.9rem;
   font-weight: 500;
+}
+
+/* ══════════════════════════════════════════
+   모바일 공통 요소 (항상 정의, 모바일에서 표시)
+══════════════════════════════════════════ */
+.dp-mobile-menu-btn {
+  display: none;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.dp-sidebar-overlay {
+  display: none;
+}
+
+.dp-main-header__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ══════════════════════════════════════════
+   반응형 — 모바일 (≤ 768px)
+══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* 루트 */
+  #root {
+    border-inline: none;
+  }
+
+  /* 헤더 */
+  .top-search-bar {
+    flex-direction: column;
+    padding: 12px 16px;
+    gap: 10px;
+  }
+  .top-search-bar__logo {
+    font-size: 1.1rem;
+  }
+  .top-search-bar__subtitle {
+    font-size: 0.8rem;
+  }
+  .top-search-bar__filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+  .fsel--layer {
+    grid-column: span 2;
+  }
+  .fsel {
+    min-width: 0;
+  }
+
+  /* 메인 페이지 */
+  .page-content {
+    flex-direction: column;
+  }
+  .dong-list {
+    display: none;
+  }
+  .map-wrapper {
+    padding: 10px;
+  }
+
+  /* 동 정보 카드 */
+  .dong-info-card {
+    left: 12px;
+    bottom: 12px;
+    width: 192px;
+  }
+
+  /* 지도 */
+  .map-view {
+    min-height: 220px;
+  }
+
+  /* 상세 페이지 — 사이드바 드로어 */
+  .detail-page {
+    position: relative;
+  }
+
+  .dp-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: none;
+  }
+  .detail-page--sidebar-open .dp-sidebar {
+    transform: translateX(0);
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.25);
+  }
+  .dp-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    z-index: 99;
+  }
+  .detail-page--sidebar-open .dp-sidebar-overlay {
+    display: block;
+  }
+
+  /* 상세 페이지 — 메인 */
+  .dp-mobile-menu-btn {
+    display: flex;
+  }
+  .dp-main {
+    padding: 14px 16px;
+  }
+  .dp-main-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .dp-main-title {
+    font-size: 1.2rem;
+  }
+
+  /* 점수 카드 — 3열 그리드 */
+  .dp-scores {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .dp-score-card {
+    padding: 12px 8px;
+    gap: 5px;
+  }
+  .dp-score-card__title {
+    font-size: 0.72rem;
+  }
+
+  /* 상세 지도 높이 제한 */
+  .dp-detail-map .map-view {
+    min-height: 180px;
+    max-height: 220px;
+  }
+
+  /* 차트 — 세로 스택 */
+  .dp-charts {
+    flex-direction: column;
+  }
+
+  .dp-descs {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* 비교 탭 */
+  .cmp-selector {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .cmp-selector__current {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+  .cmp-body {
+    flex-direction: column;
+  }
+  .cmp-bar__cat {
+    min-width: 44px;
+  }
+  .cmp-bar__score {
+    font-size: 0.78rem;
+    min-width: 22px;
+  }
+
+  /* 사이드바 내 점수 */
+  .dp-sb-score {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
 }

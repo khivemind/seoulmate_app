@@ -15,16 +15,18 @@ export default function DongInfoCard({ gu, dong, score, grade, layerLabel, onDet
       <div className="dong-info-card__stats">
         <div className="dong-info-card__stat">
           <span className="dong-info-card__stat-label">{layerLabel ?? "종합 지수"}</span>
-          <span className="dong-info-card__stat-value">{score}</span>
+          <span className="dong-info-card__stat-value">
+            {score !== null ? score : "—"}
+          </span>
         </div>
         <div className="dong-info-card__divider" />
         <div className="dong-info-card__stat">
           <span className="dong-info-card__stat-label">등급</span>
           <span
             className="dong-info-card__grade"
-            style={{ color: GRADE_COLORS[grade] }}
+            style={{ color: GRADE_COLORS[grade] ?? GRADE_COLORS[0] }}
           >
-            {GRADE_LABELS[grade]}
+            {GRADE_LABELS[grade] ?? GRADE_LABELS[0]}
           </span>
         </div>
       </div>

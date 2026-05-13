@@ -31,9 +31,9 @@ export default function DongList({ items, selectedGu, selectedDong, onSelect }) 
             >
               <span
                 className="dong-list__grade-badge"
-                style={{ background: GRADE_COLORS[item.grade] }}
+                style={{ background: GRADE_COLORS[item.grade] ?? GRADE_COLORS[0] }}
               >
-                {item.grade}
+                {item.grade || "—"}
               </span>
               <div className="dong-list__names">
                 <span className="dong-list__dong">{item.dongName}</span>
@@ -42,9 +42,11 @@ export default function DongList({ items, selectedGu, selectedDong, onSelect }) 
                 )}
               </div>
               <div className="dong-list__score-wrap">
-                <span className="dong-list__score">{item.score}</span>
+                <span className="dong-list__score">
+                  {item.score !== null ? item.score : "—"}
+                </span>
                 <span className="dong-list__grade-label">
-                  {GRADE_LABELS[item.grade]}
+                  {GRADE_LABELS[item.grade] ?? GRADE_LABELS[0]}
                 </span>
               </div>
             </li>

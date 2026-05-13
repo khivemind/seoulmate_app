@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import NaverMap from "./NaverMap.jsx";
 import FilterSelect from "./FilterSelect.jsx";
 import DongList from "./DongList.jsx";
@@ -18,21 +18,38 @@ const CURRENT_MONTH = now.getMonth() + 1;
 
 export const LAYERS = [
   { value: "overall", label: "종합 지수" },
-  { value: "security", label: "치안" },
+  { value: "safety", label: "치안" },
   { value: "comfort", label: "쾌적도" },
   { value: "health", label: "건강 위험도" },
-  { value: "noise", label: "소음 스트레스" },
+  { value: "stress", label: "소음 스트레스" },
   { value: "hvac", label: "냉난방 수요" },
-  { value: "cost", label: "생활비" },
+  { value: "expenses", label: "생활비" },
 ];
+// API code(adm_cd2) → GeoJSON adm_cd 변환 테이블
+const admCd2ToAdmCd = Object.fromEntries(
+  seoulAdmdongGeoJSON.features.map((f) => [
+    f.properties.adm_cd2,
+    f.properties.adm_cd,
+  ]),
+);
+
+// GeoJSON adm_cd → adm_cd2 역변환 (overview API 경로용)
+const admCdToAdmCd2 = Object.fromEntries(
+  seoulAdmdongGeoJSON.features.map((f) => [
+    f.properties.adm_cd,
+    f.properties.adm_cd2,
+  ]),
+);
+
+// hvac 레이어는 code가 adm_cd 직접 사용 — 유효성 검증용 Set
+const validAdmCds = new Set(seoulAdmdongGeoJSON.features.map((f) => f.properties.adm_cd));
 
 const seededRand = (seed, offset = 0) => {
   const x = Math.sin(seed * 9301 + offset * 49297 + 233) * 10000;
   return x - Math.floor(x);
 };
 
-// 레이어별 행정동 점수/등급 (시드 고정 → 새로고침해도 동일)
-const layerDongData = (() => {
+function generateMockData() {
   const data = {};
   LAYERS.forEach(({ value: lk }, li) => {
     data[lk] = {};
@@ -54,7 +71,7 @@ const layerDongData = (() => {
     });
   });
   return data;
-})();
+}
 
 export default function App() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
@@ -64,6 +81,61 @@ export default function App() {
   const [selectedLayer, setSelectedLayer] = useState("overall");
   const [detailTarget, setDetailTarget] = useState(null);
 
+  const [layerDongData, setLayerDongData] = useState(generateMockData);
+
+  useEffect(() => {
+    setLayerDongData(generateMockData());
+    // TODO: API 연동 시 아래로 교체 (import에 useRef, useCallback 추가 필요)
+    // setLayerDongData({});
+    // fetchedRef.current = new Set();
+    // fetchLayer("overall", year, month);
+    // if (selectedLayer !== "overall") fetchLayer(selectedLayer, year, month);
+  }, [year, month]);
+
+  // TODO: API 연동 시 주석 해제 — 레이어 전환 시 미로드 레이어 fetch
+  useEffect(() => {
+    fetchLayer(selectedLayer, year, month);
+  }, [selectedLayer]);
+
+  //TODO: API 연동 시 추가 (useRef, useCallback import 필요)
+  const fetchedRef = useRef(new Set());
+  const fetchLayer = useCallback(async (layer, yr, mo) => {
+    const cacheKey = `${layer}-${yr}-${mo}`;
+    if (fetchedRef.current.has(cacheKey)) return;
+    fetchedRef.current.add(cacheKey);
+    try {
+      const base = import.meta.env.VITE_API_BASE ?? "";
+      const res = await fetch(
+        `${base}/v1/heatmap?layer=${layer}&year=${yr}&month=${mo}`,
+        { headers: { "x-api-key": "default-dev-key" } },
+      );
+      if (res.status === 404) return; // 해당 기간 데이터 없음 — 조용히 종료
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // API 응답: { status, dong_list: [{ code, dong, gu, grade, score }, ...] }
+      const { status, dong_list } = await res.json();
+      if (status !== 200) throw new Error(`API status ${status}`);
+      const byAdmCd = Object.fromEntries(
+        dong_list
+          .map(({ code, score, grade }) => {
+            const key = String(code);
+            const adm_cd = layer === "hvac"
+              ? (validAdmCds.has(key) ? key : null)
+              : admCd2ToAdmCd[key];
+            return adm_cd ? [adm_cd, { score, grade }] : null;
+          })
+          .filter(Boolean),
+      );
+      console.log(`[heatmap] ${layer} ${yr}-${mo}: API ${dong_list.length}개 → 매핑 ${Object.keys(byAdmCd).length}개`);
+      const noData = seoulAdmdongGeoJSON.features
+        .filter((f) => !byAdmCd[f.properties.adm_cd])
+        .map((f) => f.properties.adm_nm);
+      if (noData.length) console.log(`[heatmap] 데이터 없음 동 (${noData.length}개):`, noData);
+      setLayerDongData((prev) => ({ ...prev, [layer]: byAdmCd }));
+    } catch (e) {
+      console.error(`[heatmap] ${layer}:`, e);
+    }
+  }, []);
+
   const guList = useMemo(() => {
     const gus = [
       ...new Set(seoulAdmdongGeoJSON.features.map((f) => f.properties.sggnm)),
@@ -71,34 +143,47 @@ export default function App() {
     return gus.sort().map((g) => ({ value: g, label: g }));
   }, []);
 
-  const activeGradeData = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(layerDongData[selectedLayer]).map(([k, v]) => [
-          k,
-          v.grade,
-        ]),
-      ),
-    [selectedLayer],
-  );
+  // 지도 폴리곤 색상용 — 로드 전엔 빈 객체, 로드 후 없는 동은 0(데이터 없음)
+  const activeGradeData = useMemo(() => {
+    const layerData = layerDongData[selectedLayer];
+    if (!layerData) return {};
+    return Object.fromEntries(
+      seoulAdmdongGeoJSON.features.map((f) => [
+        f.properties.adm_cd,
+        layerData[f.properties.adm_cd]?.grade ?? 0,
+      ]),
+    );
+  }, [selectedLayer, layerDongData]);
+
+  const scoreSort = (a, b) => {
+    if (a.score === null && b.score === null) return 0;
+    if (a.score === null) return 1;
+    if (b.score === null) return -1;
+    return b.score - a.score;
+  };
+
+  // 상세 페이지 비교 동 목록용 — 항상 종합 지수 기준 등급
   const allDongItems = useMemo(() => {
+    const overallData = layerDongData["overall"];
     return seoulAdmdongGeoJSON.features
       .map((f) => {
         const parts = f.properties.adm_nm.split(" ");
         const adm_cd = f.properties.adm_cd;
-        const d = layerDongData[selectedLayer][adm_cd];
-
+        const d = overallData?.[adm_cd];
         return {
           adm_cd,
           sggnm: f.properties.sggnm,
           dongName: parts[parts.length - 1],
-          grade: d?.grade ?? 3,
-          score: d?.score ?? 0,
+          grade: d?.grade ?? (overallData ? 0 : 3),
+          score: d?.score ?? null,
         };
       })
-      .sort((a, b) => b.score - a.score);
-  }, [selectedLayer]);
+      .sort(scoreSort);
+  }, [layerDongData]);
+
+  // 메인 화면 동 목록 — 선택 레이어 기준 점수/등급
   const sortedDongItems = useMemo(() => {
+    const layerData = layerDongData[selectedLayer];
     const features = selectedGu
       ? seoulAdmdongGeoJSON.features.filter(
           (f) => f.properties.sggnm === selectedGu,
@@ -109,17 +194,17 @@ export default function App() {
       .map((f) => {
         const parts = f.properties.adm_nm.split(" ");
         const adm_cd = f.properties.adm_cd;
-        const d = layerDongData[selectedLayer][adm_cd];
+        const d = layerData?.[adm_cd];
         return {
           adm_cd,
           sggnm: f.properties.sggnm,
           dongName: parts[parts.length - 1],
-          grade: d?.grade ?? 3,
-          score: d?.score ?? 0,
+          grade: d?.grade ?? (layerData ? 0 : 3),
+          score: d?.score ?? null,
         };
       })
-      .sort((a, b) => b.score - a.score);
-  }, [selectedGu, selectedLayer]);
+      .sort(scoreSort);
+  }, [selectedGu, selectedLayer, layerDongData]);
 
   const handleGuChange = (e) => {
     setSelectedGu(e.target.value);
@@ -132,6 +217,7 @@ export default function App() {
     setSelectedDong(isSame ? "" : dong);
   };
 
+  // 선택 동 정보 — 선택 레이어 기준 (지도·카드 표시용)
   const selectedDongData = useMemo(() => {
     if (!selectedGu || !selectedDong) return null;
     const feature = seoulAdmdongGeoJSON.features.find((f) => {
@@ -143,9 +229,10 @@ export default function App() {
     });
     if (!feature) return null;
     const adm_cd = feature.properties.adm_cd;
-    const d = layerDongData[selectedLayer][adm_cd];
-    return { adm_cd, score: d?.score ?? 0, grade: d?.grade ?? 3 };
-  }, [selectedGu, selectedDong, selectedLayer]);
+    const layerData = layerDongData[selectedLayer];
+    const d = layerData?.[adm_cd];
+    return { adm_cd, score: d?.score ?? null, grade: d?.grade ?? (layerData ? 0 : 3) };
+  }, [selectedGu, selectedDong, selectedLayer, layerDongData]);
 
   const openDetail = () => {
     if (!selectedDongData) return;
@@ -155,6 +242,7 @@ export default function App() {
       gu: selectedGu,
       dong: selectedDong,
       adm_cd: selectedDongData.adm_cd,
+      adm_cd2: admCdToAdmCd2[selectedDongData.adm_cd],
       score: overallD?.score ?? 0,
       grade: overallD?.grade ?? 3,
     });
@@ -176,6 +264,7 @@ export default function App() {
       gu: detailTarget.gu,
       dong: dongName,
       adm_cd,
+      adm_cd2: admCdToAdmCd2[adm_cd],
       score: d?.score ?? 0,
       grade: d?.grade ?? 3,
     });
@@ -208,6 +297,7 @@ export default function App() {
               gu,
               dong: dongName,
               adm_cd,
+              adm_cd2: admCdToAdmCd2[adm_cd],
               score: d?.score ?? 0,
               grade: d?.grade ?? 3,
             });

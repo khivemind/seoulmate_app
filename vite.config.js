@@ -7,5 +7,15 @@ export default defineConfig({
   server: {
     port: 3000,
     allowedHosts: ["www.seoulmate.cloud"],
+    strictPort: true,
+    hmr: {
+      clientPort: 443,
+    },
+    proxy: {
+      "/v1": {
+        target: "https://api.seoulmate.cloud",
+        changeOrigin: true,
+      },
+    },
   },
 });

@@ -1,14 +1,57 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import SidebarSelect from "./SidebarSelect.jsx";
 import NaverMap from "./NaverMap.jsx";
+import {
+  LuLayoutDashboard,
+  LuLeaf,
+  LuActivity,
+  LuBrain,
+  LuThermometerSnowflake,
+  LuShieldCheck,
+  LuWallet,
+  LuAudioLines,
+  LuSearch,
+  LuInfo,
+} from "react-icons/lu";
 
 /* ── 상수 ─────────────────────────────────── */
 const CATEGORIES = [
-  { key: "comfort", label: "쾌적도", icon: "🌿", color: "#22C55E" },
-  { key: "health", label: "건강", icon: "💙", color: "#3B82F6" },
-  { key: "stress", label: "스트레스", icon: "🟠", color: "#F97316" },
-  { key: "hvac", label: "냉난방", icon: "❄️", color: "#60A5FA" },
-  { key: "security", label: "치안", icon: "🛡️", color: "#8B5CF6" },
+  {
+    key: "comfort",
+    label: "쾌적도",
+    icon: <LuLeaf size={24} color="#10b981" />,
+    color: "#22C55E",
+  },
+  {
+    key: "health",
+    label: "건강",
+    icon: <LuActivity size={24} color="#f43f5e" />,
+    color: "#3B82F6",
+  },
+  {
+    key: "stress",
+    label: "소음",
+    icon: <LuAudioLines size={24} color="#f97316" />,
+    color: "#F97316",
+  },
+  {
+    key: "hvac",
+    label: "냉난방",
+    icon: <LuThermometerSnowflake size={24} color="#0ea5e9" />,
+    color: "#60A5FA",
+  },
+  {
+    key: "safety",
+    label: "치안",
+    icon: <LuShieldCheck size={24} color="#3b82f6" />,
+    color: "#8B5CF6",
+  },
+  {
+    key: "expenses",
+    label: "생활비용",
+    icon: <LuWallet size={24} color="#8b5cf6" />,
+    color: "#EAB308",
+  },
 ];
 
 const CATEGORY_DESC = {
@@ -17,7 +60,8 @@ const CATEGORY_DESC = {
   health: "의료 접근성, 운동 시설, 식품 환경 등 건강 관련 지표를 평가합니다.",
   stress: "교통 혼잡, 소음, 인구 밀도 등 스트레스 유발 요인을 평가합니다.",
   hvac: "여름·겨울 냉난방 필요도 및 에너지 효율 환경을 평가합니다.",
-  security: "범죄율, CCTV 설치 현황, 가로등 밀도 등 치안 지표를 평가합니다.",
+  safety: "범죄율, CCTV 설치 현황, 가로등 밀도 등 치안 지표를 평가합니다.",
+  expenses: "임대료, 식료품비, 교통비 등 생활비용 수준을 평가합니다.",
 };
 
 /* ── 유틸 ─────────────────────────────────── */
@@ -49,6 +93,31 @@ const genMonthlyScores = (base, adm_cd, year) => {
     const noise = (seededRand(seed, i + 20) - 0.5) * 20;
     return Math.min(100, Math.max(0, Math.round(base + noise)));
   });
+};
+
+// 전년도 1월 ~ 현재 월까지 추이 데이터 생성
+const genTrendScores = (base, adm_cd, prevYear, upToMonth) => {
+  const seed1 = (parseInt(adm_cd, 10) || 1) + prevYear;
+  const seed2 = (parseInt(adm_cd, 10) || 1) + (prevYear + 1);
+  const prev = Array.from({ length: 12 }, (_, i) => ({
+    score: Math.min(
+      100,
+      Math.max(0, Math.round(base + (seededRand(seed1, i + 20) - 0.5) * 20)),
+    ),
+    month: i + 1,
+    year: prevYear,
+    isYearStart: i === 0,
+  }));
+  const cur = Array.from({ length: upToMonth }, (_, i) => ({
+    score: Math.min(
+      100,
+      Math.max(0, Math.round(base + (seededRand(seed2, i + 20) - 0.5) * 20)),
+    ),
+    month: i + 1,
+    year: prevYear + 1,
+    isYearStart: i === 0,
+  }));
+  return [...prev, ...cur];
 };
 
 /* ── 원형 진행 표시 ───────────────────────── */
@@ -274,7 +343,10 @@ function CompareBar({ label, icon, scoreA, scoreB }) {
       <div className="cmp-bar__side cmp-bar__side--a">
         <span className="cmp-bar__score">{scoreA}</span>
         <div className="cmp-bar__track cmp-bar__track--a">
-          <div className="cmp-bar__fill" style={{ width: `${scoreA}%`, background: colorA }} />
+          <div
+            className="cmp-bar__fill"
+            style={{ width: `${scoreA}%`, background: colorA }}
+          />
         </div>
       </div>
       <div className="cmp-bar__cat">
@@ -283,7 +355,10 @@ function CompareBar({ label, icon, scoreA, scoreB }) {
       </div>
       <div className="cmp-bar__side cmp-bar__side--b">
         <div className="cmp-bar__track">
-          <div className="cmp-bar__fill" style={{ width: `${scoreB}%`, background: colorB }} />
+          <div
+            className="cmp-bar__fill"
+            style={{ width: `${scoreB}%`, background: colorB }}
+          />
         </div>
         <span className="cmp-bar__score">{scoreB}</span>
       </div>
@@ -293,9 +368,15 @@ function CompareBar({ label, icon, scoreA, scoreB }) {
 
 /* ── 이중 레이더 차트 ─────────────────────── */
 function CompareRadar({ scoresA, scoresB }) {
-  const SIZE = 220, center = SIZE / 2, maxR = center - 40, n = scoresA.length;
+  const SIZE = 220,
+    center = SIZE / 2,
+    maxR = center - 40,
+    n = scoresA.length;
   const ang = (i) => (i / n) * 2 * Math.PI - Math.PI / 2;
-  const pt = (i, r) => [center + r * Math.cos(ang(i)), center + r * Math.sin(ang(i))];
+  const pt = (i, r) => [
+    center + r * Math.cos(ang(i)),
+    center + r * Math.sin(ang(i)),
+  ];
 
   const ptsA = scoresA.map((s, i) => pt(i, (s / 100) * maxR));
   const ptsB = scoresB.map((s, i) => pt(i, (s / 100) * maxR));
@@ -303,18 +384,44 @@ function CompareRadar({ scoresA, scoresB }) {
   return (
     <svg viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ width: SIZE, height: SIZE }}>
       {[0.25, 0.5, 0.75, 1].map((l) => (
-        <polygon key={l}
-          points={Array.from({ length: n }, (_, i) => pt(i, l * maxR)).map(([x, y]) => `${x},${y}`).join(" ")}
-          fill="none" stroke="#e5e7eb" strokeWidth="1" />
+        <polygon
+          key={l}
+          points={Array.from({ length: n }, (_, i) => pt(i, l * maxR))
+            .map(([x, y]) => `${x},${y}`)
+            .join(" ")}
+          fill="none"
+          stroke="#e5e7eb"
+          strokeWidth="1"
+        />
       ))}
       {Array.from({ length: n }, (_, i) => {
         const [x, y] = pt(i, maxR);
-        return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#e5e7eb" strokeWidth="1" />;
+        return (
+          <line
+            key={i}
+            x1={center}
+            y1={center}
+            x2={x}
+            y2={y}
+            stroke="#e5e7eb"
+            strokeWidth="1"
+          />
+        );
       })}
-      <polygon points={ptsA.map(([x, y]) => `${x},${y}`).join(" ")}
-        fill="#00B493" fillOpacity="0.2" stroke="#00B493" strokeWidth="2" />
-      <polygon points={ptsB.map(([x, y]) => `${x},${y}`).join(" ")}
-        fill="#818CF8" fillOpacity="0.2" stroke="#818CF8" strokeWidth="2" />
+      <polygon
+        points={ptsA.map(([x, y]) => `${x},${y}`).join(" ")}
+        fill="#00B493"
+        fillOpacity="0.2"
+        stroke="#00B493"
+        strokeWidth="2"
+      />
+      <polygon
+        points={ptsB.map(([x, y]) => `${x},${y}`).join(" ")}
+        fill="#818CF8"
+        fillOpacity="0.2"
+        stroke="#818CF8"
+        strokeWidth="2"
+      />
       {ptsA.map(([x, y], i) => (
         <circle key={i} cx={x} cy={y} r="3.5" fill="#00B493" />
       ))}
@@ -324,8 +431,16 @@ function CompareRadar({ scoresA, scoresB }) {
       {CATEGORIES.map((cat, i) => {
         const [lx, ly] = pt(i, maxR + 20);
         return (
-          <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-            fontSize="11" fill="#6b7280" fontWeight="500">
+          <text
+            key={i}
+            x={lx}
+            y={ly}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="11"
+            fill="#6b7280"
+            fontWeight="500"
+          >
             {cat.label}
           </text>
         );
@@ -334,11 +449,129 @@ function CompareRadar({ scoresA, scoresB }) {
   );
 }
 
+/* ── 추이 비교 차트 ────────────────────────── */
+function CompareTrendChart({ trendA, trendB, nameA, nameB }) {
+  const PAD = { t: 28, b: 32, l: 32, r: 16 };
+  const W = 560,
+    H = 170;
+  const iw = W - PAD.l - PAD.r;
+  const ih = H - PAD.t - PAD.b;
+  const n = trendA.length;
+
+  const allVals = [...trendA, ...trendB].map((d) => d.score);
+  const minV = Math.max(0, Math.min(...allVals) - 8);
+  const maxV = Math.min(100, Math.max(...allVals) + 8);
+
+  const px = (i) => (n === 1 ? PAD.l + iw / 2 : PAD.l + (i / (n - 1)) * iw);
+  const py = (v) => PAD.t + ih - ((v - minV) / (maxV - minV)) * ih;
+
+  const pathA = trendA
+    .map((d, i) => `${i === 0 ? "M" : "L"}${px(i)},${py(d.score)}`)
+    .join(" ");
+  const pathB = trendB
+    .map((d, i) => `${i === 0 ? "M" : "L"}${px(i)},${py(d.score)}`)
+    .join(" ");
+
+  const yearBoundaryIdx = trendA.findIndex((d, i) => i > 0 && d.isYearStart);
+
+  return (
+    <div className="dp-chart-card">
+      <div className="dp-chart-card__title">종합 점수 추이 비교</div>
+      <div className="cmp-trend__legend">
+        <span className="cmp-radar__dot" style={{ background: "#00B493" }} />
+        <span className="cmp-radar__name">{nameA}</span>
+
+        <span className="cmp-radar__dot" style={{ background: "#818CF8" }} />
+        <span className="cmp-radar__name">{nameB}</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: H }}>
+        {[0.25, 0.5, 0.75, 1].map((t) => (
+          <line
+            key={t}
+            x1={PAD.l}
+            y1={PAD.t + ih * (1 - t)}
+            x2={W - PAD.r}
+            y2={PAD.t + ih * (1 - t)}
+            stroke="#f0f0f0"
+            strokeWidth="1"
+          />
+        ))}
+        {yearBoundaryIdx >= 0 && (
+          <>
+            <line
+              x1={px(yearBoundaryIdx)}
+              y1={PAD.t - 6}
+              x2={px(yearBoundaryIdx)}
+              y2={H - PAD.b}
+              stroke="#d1d5db"
+              strokeWidth="1"
+              strokeDasharray="3,3"
+            />
+            <text
+              x={px(yearBoundaryIdx)}
+              y={PAD.t - 10}
+              textAnchor="middle"
+              fontSize="9"
+              fill="#9ca3af"
+            >
+              {trendA[yearBoundaryIdx].year}년
+            </text>
+          </>
+        )}
+        <path
+          d={pathA}
+          fill="none"
+          stroke="#00B493"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d={pathB}
+          fill="none"
+          stroke="#818CF8"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {trendA.map((d, i) => {
+          if (i % 3 !== 0 && i !== n - 1) return null;
+          return (
+            <text
+              key={i}
+              x={px(i)}
+              y={H - PAD.b + 12}
+              textAnchor="middle"
+              fontSize="9"
+              fill="#9ca3af"
+            >
+              {d.month}월
+            </text>
+          );
+        })}
+        <circle
+          cx={px(n - 1)}
+          cy={py(trendA[n - 1].score)}
+          r="3.5"
+          fill="#00B493"
+        />
+        <circle
+          cx={px(n - 1)}
+          cy={py(trendB[n - 1].score)}
+          r="3.5"
+          fill="#818CF8"
+        />
+      </svg>
+    </div>
+  );
+}
+
 /* ── 메인 컴포넌트 ────────────────────────── */
 export default function DetailPage({
   gu,
   dong,
   adm_cd,
+  adm_cd2,
   score,
   grade,
   year,
@@ -354,43 +587,89 @@ export default function DetailPage({
   const [activeTab, setActiveTab] = useState("overall");
   const [cmpGu, setCmpGu] = useState("");
   const [cmpDong, setCmpDong] = useState("");
+  const [cmpGrade, setCmpGrade] = useState("");
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [overviewData, setOverviewData] = useState(null);
   const mainRef = useRef(null);
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
   }, [dong]);
 
+  useEffect(() => {
+    if (!adm_cd2) return;
+    setOverviewData(null);
+    const base = import.meta.env.VITE_API_BASE ?? "";
+    fetch(`${base}/v1/overview/${adm_cd2}?year=${year}`, {
+      headers: { "x-api-key": "default-dev-key" },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data?.status === 200) setOverviewData(data); })
+      .catch(() => {});
+  }, [adm_cd2, year]);
+
   const cmpDongOptions = useMemo(
-    () => !cmpGu
-      ? []
-      : (guDongItems ?? [])
-          .filter((item) => item.sggnm === cmpGu)
-          .map((item) => ({ value: item.dongName, label: item.dongName })),
-    [cmpGu, guDongItems],
+    () =>
+      !cmpGu
+        ? []
+        : (guDongItems ?? [])
+            .filter(
+              (item) =>
+                item.sggnm === cmpGu &&
+                (!cmpGrade || String(item.grade) === cmpGrade),
+            )
+            .map((item) => ({ value: item.dongName, label: item.dongName })),
+    [cmpGu, cmpGrade, guDongItems],
   );
   const cmpItem = useMemo(
-    () => !cmpDong ? null
-      : (guDongItems ?? []).find((item) => item.sggnm === cmpGu && item.dongName === cmpDong),
+    () =>
+      !cmpDong
+        ? null
+        : (guDongItems ?? []).find(
+            (item) => item.sggnm === cmpGu && item.dongName === cmpDong,
+          ),
     [cmpGu, cmpDong, guDongItems],
   );
   const cmpCatScores = useMemo(
-    () => cmpItem ? genCategoryScores(cmpItem.score, cmpItem.adm_cd) : null,
+    () => (cmpItem ? genCategoryScores(cmpItem.score, cmpItem.adm_cd) : null),
     [cmpItem],
   );
-
-  const catScores = useMemo(
-    () => genCategoryScores(score, adm_cd),
-    [score, adm_cd],
+  const trendA = useMemo(
+    () => genTrendScores(effectiveScore, adm_cd, Number(year) - 1, Number(month)),
+    [effectiveScore, adm_cd, year, month],
   );
+  const trendB = useMemo(
+    () =>
+      cmpItem
+        ? genTrendScores(
+            cmpItem.score,
+            cmpItem.adm_cd,
+            Number(year) - 1,
+            Number(month),
+          )
+        : null,
+    [cmpItem, year, month],
+  );
+
+  const effectiveScore = overviewData?.average_score ?? score;
+
+  const catScores = useMemo(() => {
+    if (overviewData) {
+      return CATEGORIES.map((cat) => overviewData[cat.key] ?? 0);
+    }
+    return genCategoryScores(score, adm_cd);
+  }, [overviewData, score, adm_cd]);
+
   const monthScores = useMemo(
-    () => genMonthlyScores(score, adm_cd, year),
-    [score, adm_cd, year],
+    () => genMonthlyScores(effectiveScore, adm_cd, year),
+    [effectiveScore, adm_cd, year],
   );
 
-  const prevScore = monthScores[Number(month) - 2] ?? score;
-  const delta = monthScores[Number(month) - 1] - prevScore;
+  const prevScore = monthScores[Number(month) - 2] ?? effectiveScore;
+  const mockDelta = monthScores[Number(month) - 1] - prevScore;
+  const delta = overviewData?.recent_trend ?? mockDelta;
 
-  const { label: gradeLabel, color: gradeColor } = getGradeInfo(score);
+  const { label: gradeLabel, color: gradeColor } = getGradeInfo(effectiveScore);
   const secInfo = getGradeInfo(catScores[4]);
   const secSeed = parseInt(adm_cd, 10) || 1;
   const secDelta = Math.round((seededRand(secSeed, 99) - 0.3) * 16);
@@ -401,7 +680,15 @@ export default function DetailPage({
   const myRank = (guDongItems ?? []).findIndex((i) => i.dongName === dong) + 1;
 
   return (
-    <div className="detail-page">
+    <div
+      className={`detail-page${mobileSidebarOpen ? " detail-page--sidebar-open" : ""}`}
+    >
+      {/* 모바일 사이드바 오버레이 */}
+      <div
+        className="dp-sidebar-overlay"
+        onClick={() => setMobileSidebarOpen(false)}
+      />
+
       {/* ── 사이드바 ── */}
       <aside className="dp-sidebar">
         <button className="detail-back" onClick={onBack}>
@@ -455,21 +742,41 @@ export default function DetailPage({
         <div className="dp-sb-section">
           <div className="dp-sb-title">종합 쾌적도 점수</div>
           <div className="dp-sb-score">
-            <CircleScore score={score} size={90} stroke={9} />
-            <div className="dp-sb-score__grade" style={{ color: gradeColor }}>{gradeLabel}</div>
+            <CircleScore score={effectiveScore} size={90} stroke={9} />
+            <div className="dp-sb-score__grade" style={{ color: gradeColor }}>
+              {gradeLabel}
+            </div>
             <div className="dp-sb-score__delta">
               지난 달 대비{" "}
-              <span style={{ color: delta >= 0 ? "#22C55E" : "#EF4444", fontWeight: 700 }}>
+              <span
+                style={{
+                  color: delta >= 0 ? "#22C55E" : "#EF4444",
+                  fontWeight: 700,
+                }}
+              >
                 {delta >= 0 ? `↑ ${delta}점` : `↓ ${Math.abs(delta)}점`}
               </span>
             </div>
-            <div className="dp-security">
-              <span>🛡️ 치안</span>
-              <span className="dp-security__grade" style={{ color: secInfo.color }}>{secInfo.label}</span>
-              <span className="dp-security__delta" style={{ color: secDelta >= 0 ? "#22C55E" : "#EF4444" }}>
-                {secDelta >= 0 ? `↑ ${secDelta}점` : `↓ ${Math.abs(secDelta)}점`}
+            {/* <div className="dp-security">
+              <span>
+                <LuShieldCheck size={24} color="#3b82f6" />
               </span>
-            </div>
+              <span className="dp-security__label">치안</span>
+              <span
+                className="dp-security__grade"
+                style={{ color: secInfo.color }}
+              >
+                {secInfo.label}
+              </span>
+              <span
+                className="dp-security__delta"
+                style={{ color: secDelta >= 0 ? "#22C55E" : "#EF4444" }}
+              >
+                {secDelta >= 0
+                  ? `↑ ${secDelta}점`
+                  : `↓ ${Math.abs(secDelta)}점`}
+              </span>
+            </div> */}
           </div>
         </div>
 
@@ -491,14 +798,10 @@ export default function DetailPage({
               <div className="dp-sb-rank-item dp-sb-rank-item--active">
                 <span className="dp-sb-rank-pos">{myRank}위</span>
                 <span className="dp-sb-rank-name">{dong}</span>
-                <span className="dp-sb-rank-score">{score}점</span>
+                <span className="dp-sb-rank-score">{effectiveScore}점</span>
               </div>
             )}
           </div>
-        </div>
-
-        <div className="dp-sb-hint">
-          ⓘ 지표를 선택하면 세부 정보를 확인할 수 있습니다.
         </div>
       </aside>
 
@@ -534,7 +837,10 @@ export default function DetailPage({
                 selectedDong={dong}
                 gradeData={gradeData}
                 onDongClick={(clickedGu, clickedDong) => {
-                  if (clickedGu !== gu) { onGuChange?.(clickedGu); return; }
+                  if (clickedGu !== gu) {
+                    onGuChange?.(clickedGu);
+                    return;
+                  }
                   onDongChange?.(clickedDong);
                 }}
               />
@@ -545,7 +851,7 @@ export default function DetailPage({
             <>
               {/* 점수 카드 */}
               <div className="dp-scores">
-                {CATEGORIES.slice(0, 5).map((cat, i) => {
+                {CATEGORIES.map((cat, i) => {
                   const s = catScores[i];
                   const seed = parseInt(adm_cd, 10) || 1;
                   const d = Math.round((seededRand(seed, i + 60) - 0.4) * 14);
@@ -553,13 +859,25 @@ export default function DetailPage({
                   return (
                     <div key={cat.key} className="dp-score-card">
                       <div className="dp-score-card__header">
-                        <span style={{ fontSize: "1.1rem" }}>{cat.icon}</span>
-                        <span className="dp-score-card__title">{cat.label}</span>
+                        <span style={{ fontSize: "1rem" }}>{cat.icon}</span>
+                        <span className="dp-score-card__title">
+                          {cat.label}
+                        </span>
+                        {cat.key === "safety" && (
+                          <span className="dp-score-card__info">
+                            <LuInfo size={12} />
+                            <span className="dp-score-card__tooltip">
+                              치안은 구 기준으로 집계되었습니다.
+                            </span>
+                          </span>
+                        )}
                       </div>
-                      <CircleScore score={s} size={100} stroke={10} />
-                      <div className="dp-score-card__grade" style={{ color: gc }}>{gl}</div>
-                      <div className="dp-score-card__delta" style={{ color: d >= 0 ? "#22C55E" : "#EF4444" }}>
-                        {d >= 0 ? `↑ ${d}점` : `↓ ${Math.abs(d)}점`}
+                      <CircleScore score={s} size={80} stroke={8} />
+                      <div
+                        className="dp-score-card__grade"
+                        style={{ color: gc }}
+                      >
+                        {gl}
                       </div>
                     </div>
                   );
@@ -569,12 +887,20 @@ export default function DetailPage({
               {/* 차트 */}
               <div className="dp-charts">
                 <div className="dp-chart-card">
-                  <div className="dp-chart-card__title">월별 종합 점수 추이</div>
+                  <div className="dp-chart-card__title">
+                    월별 종합 점수 추이
+                  </div>
                   <LineChart scores={monthScores} currentMonth={month} />
                 </div>
                 <div className="dp-chart-card">
                   <div className="dp-chart-card__title">지표별 점수 분포</div>
-                  <div style={{ display: "flex", justifyContent: "center", paddingTop: 4 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      paddingTop: 4,
+                    }}
+                  >
                     <RadarChart scores={catScores} />
                   </div>
                 </div>
@@ -587,7 +913,9 @@ export default function DetailPage({
                     <span className="dp-desc-card__icon">{cat.icon}</span>
                     <div>
                       <div className="dp-desc-card__label">{cat.label}</div>
-                      <div className="dp-desc-card__text">{CATEGORY_DESC[cat.key]}</div>
+                      <div className="dp-desc-card__text">
+                        {CATEGORY_DESC[cat.key]}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -599,15 +927,36 @@ export default function DetailPage({
               {/* 동 선택 */}
               <div className="cmp-selector">
                 <div className="cmp-selector__current">
-                  <span className="cmp-selector__tag cmp-selector__tag--a">현재</span>
+                  <span className="cmp-selector__tag cmp-selector__tag--a">
+                    현재
+                  </span>
                   <span className="cmp-selector__name">{dong}</span>
                   <span className="cmp-selector__gu">{gu}</span>
                 </div>
                 <span className="cmp-selector__vs">VS</span>
                 <div className="cmp-selector__picks">
                   <SidebarSelect
+                    value={cmpGrade}
+                    onChange={(val) => {
+                      setCmpGrade(val);
+                      setCmpDong("");
+                    }}
+                    options={[
+                      { value: "", label: "전체 등급" },
+                      { value: "1", label: "1등급 — 매우 우수" },
+                      { value: "2", label: "2등급 — 우수" },
+                      { value: "3", label: "3등급 — 보통" },
+                      { value: "4", label: "4등급 — 미흡" },
+                      { value: "5", label: "5등급 — 불량" },
+                    ]}
+                    placeholder="등급 선택"
+                  />
+                  <SidebarSelect
                     value={cmpGu}
-                    onChange={(val) => { setCmpGu(val); setCmpDong(""); }}
+                    onChange={(val) => {
+                      setCmpGu(val);
+                      setCmpDong("");
+                    }}
                     options={guList}
                     placeholder="구 선택"
                   />
@@ -622,37 +971,70 @@ export default function DetailPage({
               </div>
 
               {cmpItem ? (
-                <div className="cmp-body">
-                  {/* 버터플라이 차트 */}
-                  <div className="cmp-bars">
-                    <div className="cmp-cols-header">
-                      <span className="cmp-cols-header__a">{dong}</span>
-                      <span className="cmp-cols-header__mid">지표</span>
-                      <span className="cmp-cols-header__b">{cmpDong}</span>
+                <>
+                  <div className="cmp-body">
+                    {/* 버터플라이 차트 */}
+                    <div className="cmp-bars">
+                      <div className="cmp-cols-header">
+                        <span className="cmp-cols-header__a">{dong}</span>
+                        <span className="cmp-cols-header__mid">지표</span>
+                        <span className="cmp-cols-header__b">{cmpDong}</span>
+                      </div>
+                      <CompareBar
+                        label="종합"
+                        icon={<LuLayoutDashboard size={24} color="#6366f1" />}
+                        scoreA={effectiveScore}
+                        scoreB={cmpItem.score}
+                      />
+                      <div className="cmp-divider" />
+                      {CATEGORIES.map((cat, i) => (
+                        <CompareBar
+                          key={cat.key}
+                          label={cat.label}
+                          icon={cat.icon}
+                          scoreA={catScores[i]}
+                          scoreB={cmpCatScores[i]}
+                        />
+                      ))}
                     </div>
-                    <CompareBar label="종합" icon="⭐" scoreA={score} scoreB={cmpItem.score} />
-                    <div className="cmp-divider" />
-                    {CATEGORIES.map((cat, i) => (
-                      <CompareBar key={cat.key} label={cat.label} icon={cat.icon}
-                        scoreA={catScores[i]} scoreB={cmpCatScores[i]} />
-                    ))}
+
+                    {/* 레이더 비교 */}
+                    <div className="cmp-radar">
+                      <div className="cmp-radar__legend">
+                        <span
+                          className="cmp-radar__dot"
+                          style={{ background: "#00B493" }}
+                        />
+                        <span className="cmp-radar__name">{dong}</span>
+                        <span
+                          className="cmp-radar__dot"
+                          style={{ background: "#818CF8" }}
+                        />
+                        <span className="cmp-radar__name">{cmpDong}</span>
+                      </div>
+                      <CompareRadar
+                        scoresA={catScores}
+                        scoresB={cmpCatScores}
+                      />
+                    </div>
                   </div>
 
-                  {/* 레이더 비교 */}
-                  <div className="cmp-radar">
-                    <div className="cmp-radar__legend">
-                      <span className="cmp-radar__dot" style={{ background: "#00B493" }} />
-                      <span className="cmp-radar__name">{dong}</span>
-                      <span className="cmp-radar__dot" style={{ background: "#818CF8" }} />
-                      <span className="cmp-radar__name">{cmpDong}</span>
-                    </div>
-                    <CompareRadar scoresA={catScores} scoresB={cmpCatScores} />
-                  </div>
-                </div>
+                  {/* 추이 비교 차트 */}
+                  <CompareTrendChart
+                    trendA={trendA}
+                    trendB={trendB}
+                    nameA={dong}
+                    nameB={cmpDong}
+                  />
+                </>
               ) : (
                 <div className="cmp-empty">
-                  <span className="cmp-empty__icon">🔍</span>
-                  <span className="cmp-empty__text">비교할 동을 선택해주세요</span>
+                  <span className="cmp-empty__icon">
+                    <LuSearch size={24} />
+                  </span>
+                  <span className="cmp-empty__text">
+                    비교할 동을 선택해주세요
+                  </span>
                 </div>
               )}
             </div>

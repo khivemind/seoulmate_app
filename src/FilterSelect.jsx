@@ -1,15 +1,21 @@
 import { useState, useRef, useEffect } from "react";
 
-export default function FilterSelect({ value, onChange, options, placeholder, disabled, showEmpty = true, className = "" }) {
+export default function FilterSelect({ value, onChange, options, placeholder, disabled, showEmpty = true, className = "", onOpenChange }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
 
   const selected = options.find((o) => o.value === value);
 
+  const setOpenWithCallback = (val) => {
+    const next = typeof val === "function" ? val(open) : val;
+    setOpen(next);
+    onOpenChange?.(next);
+  };
+
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false);
+        setOpenWithCallback(false);
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
@@ -18,7 +24,7 @@ export default function FilterSelect({ value, onChange, options, placeholder, di
 
   const handleSelect = (val) => {
     onChange({ target: { value: val } });
-    setOpen(false);
+    setOpenWithCallback(false);
   };
 
   return (
@@ -29,7 +35,7 @@ export default function FilterSelect({ value, onChange, options, placeholder, di
       <button
         type="button"
         className="fsel__trigger"
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onClick={() => !disabled && setOpenWithCallback((o) => !o)}
         disabled={disabled}
       >
         <span className={`fsel__label${!selected ? " fsel__label--placeholder" : ""}`}>

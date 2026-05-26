@@ -1,13 +1,28 @@
-import { useEffect, useRef } from "react";
-import { GRADE_COLORS, GRADE_LABELS } from "./NaverMap.jsx";
+import { useEffect, useRef, useState } from "react";
+import { GRADE_COLORS, GRADE_LABELS } from "./mapConstants.js";
+import { LuSearch, LuX } from "react-icons/lu";
 
 export default function DongList({ items, selectedGu, selectedDong, onSelect }) {
   const selectedRef = useRef(null);
+  const [query, setQuery] = useState("");
+
+  const filtered = query.trim()
+    ? items.filter(
+        (item) =>
+          item.dongName.includes(query.trim()) ||
+          item.sggnm.includes(query.trim()),
+      )
+    : items;
 
   // 선택된 항목으로 자동 스크롤
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [selectedDong]);
+
+  // 자치구 필터 바뀌면 검색어 초기화
+  useEffect(() => {
+    setQuery("");
+  }, [selectedGu]);
 
   return (
     <aside className="dong-list">
@@ -15,11 +30,30 @@ export default function DongList({ items, selectedGu, selectedDong, onSelect }) 
         <span className="dong-list__title">
           {selectedGu ? selectedGu : "전체 행정동"}
         </span>
-        <span className="dong-list__count">{items.length}개</span>
+        <span className="dong-list__count">{filtered.length}개</span>
+      </div>
+
+      <div className="dong-list__search">
+        <LuSearch size={14} className="dong-list__search-icon" />
+        <input
+          className="dong-list__search-input"
+          type="text"
+          placeholder="동 이름 검색"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query && (
+          <button className="dong-list__search-clear" onClick={() => setQuery("")}>
+            <LuX size={12} />
+          </button>
+        )}
       </div>
 
       <ul className="dong-list__ul">
-        {items.map((item) => {
+        {filtered.length === 0 && (
+          <li className="dong-list__empty">검색 결과가 없습니다</li>
+        )}
+        {filtered.map((item) => {
           const isSelected =
             item.sggnm === selectedGu && item.dongName === selectedDong;
           return (

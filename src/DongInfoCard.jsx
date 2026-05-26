@@ -1,4 +1,4 @@
-import { GRADE_COLORS, GRADE_LABELS } from "./NaverMap.jsx";
+import { GRADE_COLORS, GRADE_LABELS } from "./mapConstants.js";
 
 export default function DongInfoCard({ gu, dong, score, grade, layerLabel, onDetail, onClose }) {
   if (!dong) return null;

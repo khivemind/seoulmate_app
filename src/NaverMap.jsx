@@ -1,32 +1,6 @@
 import { useEffect, useRef } from "react";
 import seoulAdmdongGeoJSON from "./seoul-admdong.json";
-
-export const GRADE_COLORS = {
-  0: "#9ca3af",
-  1: "#22C55E",
-  2: "#84CC16",
-  3: "#EAB308",
-  4: "#F97316",
-  5: "#EF4444",
-};
-
-const GRADE_MAP_COLORS = {
-  0: "#e5e7eb",
-  1: "#86EFAC",
-  2: "#BEF264",
-  3: "#FDE047",
-  4: "#FDBA74",
-  5: "#FCA5A5",
-};
-
-export const GRADE_LABELS = {
-  0: "데이터 없음",
-  1: "1등급",
-  2: "2등급",
-  3: "3등급",
-  4: "4등급",
-  5: "5등급",
-};
+import { GRADE_COLORS, GRADE_LABELS, GRADE_MAP_COLORS } from "./mapConstants.js";
 
 const getDongCentroid = (feature) => {
   const geometry = feature.geometry;
@@ -75,16 +49,20 @@ const getStrokeWeight = (zoom) => {
   return 2;
 };
 
+const clearTimers = (timersRef) => {
+  timersRef.current.forEach(clearTimeout);
+  timersRef.current = [];
+};
+
 /**
  * rAF 루프 대신 Naver Maps 네이티브 panTo + setZoom 사용.
  * JS 프레임당 연산 없이 SDK 내부 GPU 파이프라인이 처리.
  *
  * 흐름: zoom-out(0ms) → pan+zoom-in(300ms) → 완료 콜백(900ms)
  */
-const flyTo = (map, naver, targetLat, targetLng, targetZoom, timersRef, animatingRef, onDone) => {
+  const flyTo = (map, naver, targetLat, targetLng, targetZoom, timersRef, animatingRef, onDone) => {
   // 이전 애니메이션 취소
-  timersRef.current.forEach(clearTimeout);
-  timersRef.current = [];
+  clearTimers(timersRef);
   animatingRef.current = true;
 
   const currentZoom = map.getZoom();
@@ -139,9 +117,11 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
   const animatingRef    = useRef(false);
   const flyTimersRef    = useRef([]);
   const syncStrokeRef   = useRef(null);
+  const gradeDataRef    = useRef(gradeData);
   // stale closure 방지 — 항상 최신 onDongClick을 가리킴
   const onDongClickRef  = useRef(onDongClick);
   useEffect(() => { onDongClickRef.current = onDongClick; }, [onDongClick]);
+  useEffect(() => { gradeDataRef.current = gradeData; }, [gradeData]);
   // syncStrokeWeights에서 최신 선택 상태 참조
   const selectedGuRef   = useRef(selectedGu);
   const selectedDongRef = useRef(selectedDong);
@@ -176,7 +156,7 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
       const dongName    = parseDongName(feature.properties.adm_nm);
       const adm_cd      = feature.properties.adm_cd;
       const initW       = getStrokeWeight(map.getZoom());
-      const grade       = gradeData?.[adm_cd] ?? Math.ceil(Math.random() * 5);
+      const grade       = gradeDataRef.current?.[adm_cd] ?? Math.ceil(Math.random() * 5);
       const fillColor   = GRADE_MAP_COLORS[grade] ?? GRADE_MAP_COLORS[3];
       const strokeColor = GRADE_COLORS[grade] ?? GRADE_COLORS[3];
 
@@ -212,7 +192,7 @@ export default function NaverMap({ selectedGu, selectedDong, gradeData, onDongCl
 
     return () => {
       naver.maps.Event.removeListener(zoomListener);
-      flyTimersRef.current.forEach(clearTimeout);
+      clearTimers(flyTimersRef);
     };
   }, []);
 

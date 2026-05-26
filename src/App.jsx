@@ -4,27 +4,62 @@ import FilterSelect from "./FilterSelect.jsx";
 import DongList from "./DongList.jsx";
 import DongInfoCard from "./DongInfoCard.jsx";
 import DetailPage from "./DetailPage.jsx";
+import ChatPanel from "./ChatPanel.jsx";
 import seoulAdmdongGeoJSON from "./seoul-admdong.json";
-
-const YEARS = [2025, 2026];
-const MONTHS_BY_YEAR = {
-  2025: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  2026: [1, 2, 3, 4],
-};
+import logoUrl from "./assets/logo.png";
 
 const now = new Date();
 const CURRENT_YEAR = now.getFullYear();
 const CURRENT_MONTH = now.getMonth() + 1;
+const PREV_MONTH = CURRENT_MONTH === 1 ? 12 : CURRENT_MONTH - 1;
+const PREV_MONTH_YEAR = CURRENT_MONTH === 1 ? CURRENT_YEAR - 1 : CURRENT_YEAR;
 
-export const LAYERS = [
+const YEARS = [2025, 2026];
+const MONTHS_BY_YEAR = Object.fromEntries(
+  YEARS.map((y) => [
+    y,
+    Array.from(
+      {
+        length:
+          y < PREV_MONTH_YEAR ? 12 : y === PREV_MONTH_YEAR ? PREV_MONTH : 0,
+      },
+      (_, i) => i + 1,
+    ),
+  ]).filter(([, months]) => months.length > 0),
+);
+// 도시 활력도는 당월 예측치 포함
+const EXPENSES_MONTHS_BY_YEAR = Object.fromEntries(
+  YEARS.map((y) => [
+    y,
+    Array.from(
+      {
+        length: y < CURRENT_YEAR ? 12 : y === CURRENT_YEAR ? CURRENT_MONTH : 0,
+      },
+      (_, i) => i + 1,
+    ),
+  ]).filter(([, months]) => months.length > 0),
+);
+const SAFETY_YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
+
+const BASE_LAYERS = [
   { value: "overall", label: "종합 지수" },
   { value: "safety", label: "치안" },
   { value: "comfort", label: "쾌적도" },
-  { value: "health", label: "건강 위험도" },
-  { value: "stress", label: "소음 스트레스" },
-  { value: "hvac", label: "냉난방 수요" },
-  { value: "expenses", label: "생활비" },
+  { value: "health", label: "건강 안전도" },
+  { value: "hvac", label: "에너지 효율" },
+  { value: "expenses", label: "경제 활력도" },
 ];
+const CUSTOM_LAYER = { value: "custom", label: "맞춤 추천" };
+// 서비스별 코드 불일치 보정 (heatmap API code → GeoJSON adm_cd2)
+const CODE_ALIASES = {
+  1174052500: "1174052000", // 강동구 상일1동
+};
+
+// overview API는 GeoJSON adm_cd2가 아닌 별도 코드를 사용하는 동 (GeoJSON adm_cd2 → overview API code)
+const OVERVIEW_CODE_ALIASES = {
+  1174052000: "1174052500", // 강동구 상일1동
+};
+
 // API code(adm_cd2) → GeoJSON adm_cd 변환 테이블
 const admCd2ToAdmCd = Object.fromEntries(
   seoulAdmdongGeoJSON.features.map((f) => [
@@ -41,99 +76,128 @@ const admCdToAdmCd2 = Object.fromEntries(
   ]),
 );
 
-// hvac 레이어는 code가 adm_cd 직접 사용 — 유효성 검증용 Set
-const validAdmCds = new Set(seoulAdmdongGeoJSON.features.map((f) => f.properties.adm_cd));
-
-const seededRand = (seed, offset = 0) => {
-  const x = Math.sin(seed * 9301 + offset * 49297 + 233) * 10000;
-  return x - Math.floor(x);
-};
-
-function generateMockData() {
-  const data = {};
-  LAYERS.forEach(({ value: lk }, li) => {
-    data[lk] = {};
-    seoulAdmdongGeoJSON.features.forEach((f) => {
-      const adm_cd = f.properties.adm_cd;
-      const seed = parseInt(adm_cd, 10) || 1;
-      const score = Math.floor(seededRand(seed, li * 37 + 5) * 101);
-      const grade =
-        score >= 80
-          ? 1
-          : score >= 60
-            ? 2
-            : score >= 40
-              ? 3
-              : score >= 20
-                ? 4
-                : 5;
-      data[lk][adm_cd] = { score, grade };
-    });
-  });
-  return data;
-}
-
 export default function App() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
-  const [month, setMonth] = useState(String(CURRENT_MONTH));
+  const DEFAULT_MONTH = String(
+    MONTHS_BY_YEAR[CURRENT_YEAR]?.at(-1) ?? CURRENT_MONTH,
+  );
+  const [month, setMonth] = useState(DEFAULT_MONTH);
   const [selectedGu, setSelectedGu] = useState("");
   const [selectedDong, setSelectedDong] = useState("");
   const [selectedLayer, setSelectedLayer] = useState("overall");
   const [detailTarget, setDetailTarget] = useState(null);
+  const [customLayerData, setCustomLayerData] = useState(null);
+  const [filterOpenCount, setFilterOpenCount] = useState(0);
+  const handleFilterOpen = useCallback((isOpen) => {
+    setFilterOpenCount((c) => c + (isOpen ? 1 : -1));
+  }, []);
 
-  const [layerDongData, setLayerDongData] = useState(generateMockData);
+  const [layerDongData, setLayerDongData] = useState({});
+  const [loading, setLoading] = useState(false);
+  const pendingRef = useRef(0);
 
-  useEffect(() => {
-    setLayerDongData(generateMockData());
-    // TODO: API 연동 시 아래로 교체 (import에 useRef, useCallback 추가 필요)
-    // setLayerDongData({});
-    // fetchedRef.current = new Set();
-    // fetchLayer("overall", year, month);
-    // if (selectedLayer !== "overall") fetchLayer(selectedLayer, year, month);
-  }, [year, month]);
-
-  // TODO: API 연동 시 주석 해제 — 레이어 전환 시 미로드 레이어 fetch
-  useEffect(() => {
-    fetchLayer(selectedLayer, year, month);
-  }, [selectedLayer]);
-
-  //TODO: API 연동 시 추가 (useRef, useCallback import 필요)
   const fetchedRef = useRef(new Set());
   const fetchLayer = useCallback(async (layer, yr, mo) => {
-    const cacheKey = `${layer}-${yr}-${mo}`;
+    const isSafetyLayer = layer === "safety";
+    const cacheKey = isSafetyLayer ? `safety-${yr}` : `${layer}-${yr}-${mo}`;
     if (fetchedRef.current.has(cacheKey)) return;
     fetchedRef.current.add(cacheKey);
+    pendingRef.current += 1;
+    setLoading(true);
     try {
       const base = import.meta.env.VITE_API_BASE ?? "";
-      const res = await fetch(
-        `${base}/v1/heatmap?layer=${layer}&year=${yr}&month=${mo}`,
-        { headers: { "x-api-key": "default-dev-key" } },
-      );
-      if (res.status === 404) return; // 해당 기간 데이터 없음 — 조용히 종료
+      const url = isSafetyLayer
+        ? `${base}/v1/heatmap/safety?year=${yr}`
+        : `${base}/v1/heatmap?layer=${layer}&year=${yr}&month=${mo}`;
+      console.log(`[fetch] heatmap →`, url);
+      const res = await fetch(url, {
+        headers: { "x-api-key": "v9WzP1xF7K8lQ2mR4sT6uY8aB0cD3eF9GhJkLmNo" },
+      });
+      if (res.status === 404) return;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // API 응답: { status, dong_list: [{ code, dong, gu, grade, score }, ...] }
       const { status, dong_list } = await res.json();
       if (status !== 200) throw new Error(`API status ${status}`);
       const byAdmCd = Object.fromEntries(
         dong_list
           .map(({ code, score, grade }) => {
-            const key = String(code);
-            const adm_cd = layer === "hvac"
-              ? (validAdmCds.has(key) ? key : null)
-              : admCd2ToAdmCd[key];
+            const key = CODE_ALIASES[String(code)] ?? String(code);
+            const adm_cd = admCd2ToAdmCd[key];
             return adm_cd ? [adm_cd, { score, grade }] : null;
           })
           .filter(Boolean),
       );
-      console.log(`[heatmap] ${layer} ${yr}-${mo}: API ${dong_list.length}개 → 매핑 ${Object.keys(byAdmCd).length}개`);
-      const noData = seoulAdmdongGeoJSON.features
-        .filter((f) => !byAdmCd[f.properties.adm_cd])
-        .map((f) => f.properties.adm_nm);
-      if (noData.length) console.log(`[heatmap] 데이터 없음 동 (${noData.length}개):`, noData);
+      const mappedCount = Object.keys(byAdmCd).length;
+      console.log(
+        `[heatmap] ${layer} ${yr}-${mo}: API ${dong_list.length}개 → 매핑 ${mappedCount}개`,
+      );
+
+      const unmapped = dong_list.filter(({ code }) => {
+        const key = CODE_ALIASES[String(code)] ?? String(code);
+        return !admCd2ToAdmCd[key];
+      });
+      if (unmapped.length > 0)
+        console.warn(
+          `[heatmap] ${layer} 매핑 실패 (${unmapped.length}개):`,
+          unmapped.map(({ code, dong, gu }) => `${gu} ${dong}(${code})`),
+        );
+
+      const noData = seoulAdmdongGeoJSON.features.filter(
+        (f) => !byAdmCd[f.properties.adm_cd],
+      );
+      if (noData.length > 0)
+        console.warn(
+          `[heatmap] ${layer} 데이터 없는 동 (${noData.length}개):`,
+          noData.map((f) => f.properties.adm_nm),
+        );
+
       setLayerDongData((prev) => ({ ...prev, [layer]: byAdmCd }));
     } catch (e) {
       console.error(`[heatmap] ${layer}:`, e);
+    } finally {
+      pendingRef.current -= 1;
+      if (pendingRef.current === 0) setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    setLayerDongData({});
+    fetchedRef.current = new Set();
+    fetchLayer("overall", year, month);
+    if (selectedLayer !== "overall") fetchLayer(selectedLayer, year, month);
+  }, [year, month]);
+
+  useEffect(() => {
+    if (selectedLayer !== "custom") fetchLayer(selectedLayer, year, month);
+  }, [selectedLayer]);
+
+  const LAYERS = useMemo(
+    () => (customLayerData ? [...BASE_LAYERS, CUSTOM_LAYER] : BASE_LAYERS),
+    [customLayerData],
+  );
+
+  const handleChatResult = useCallback((data) => {
+    const byAdmCd = Object.fromEntries(
+      (data.dong_list ?? [])
+        .map(({ code, score, grade }) => {
+          const key = CODE_ALIASES[String(code)] ?? String(code);
+          const adm_cd = admCd2ToAdmCd[key];
+          return adm_cd ? [adm_cd, { score, grade }] : null;
+        })
+        .filter(Boolean),
+    );
+    setCustomLayerData(byAdmCd);
+    setLayerDongData((prev) => ({ ...prev, custom: byAdmCd }));
+    setSelectedLayer("custom");
+  }, []);
+
+  const handleChatReset = useCallback(() => {
+    setCustomLayerData(null);
+    setLayerDongData((prev) => {
+      const next = { ...prev };
+      delete next.custom;
+      return next;
+    });
+    setSelectedLayer("overall");
   }, []);
 
   const guList = useMemo(() => {
@@ -172,9 +236,12 @@ export default function App() {
         const d = overallData?.[adm_cd];
         return {
           adm_cd,
+          adm_cd2:
+            OVERVIEW_CODE_ALIASES[admCdToAdmCd2[adm_cd]] ??
+            admCdToAdmCd2[adm_cd],
           sggnm: f.properties.sggnm,
           dongName: parts[parts.length - 1],
-          grade: d?.grade ?? (overallData ? 0 : 3),
+          grade: d?.grade ?? 0,
           score: d?.score ?? null,
         };
       })
@@ -199,7 +266,7 @@ export default function App() {
           adm_cd,
           sggnm: f.properties.sggnm,
           dongName: parts[parts.length - 1],
-          grade: d?.grade ?? (layerData ? 0 : 3),
+          grade: d?.grade ?? 0,
           score: d?.score ?? null,
         };
       })
@@ -231,18 +298,27 @@ export default function App() {
     const adm_cd = feature.properties.adm_cd;
     const layerData = layerDongData[selectedLayer];
     const d = layerData?.[adm_cd];
-    return { adm_cd, score: d?.score ?? null, grade: d?.grade ?? (layerData ? 0 : 3) };
+    return {
+      adm_cd,
+      score: d?.score ?? null,
+      grade: d?.grade ?? 0,
+    };
   }, [selectedGu, selectedDong, selectedLayer, layerDongData]);
+
+  const toOverviewCode = (adm_cd) => {
+    const raw = admCdToAdmCd2[adm_cd];
+    return OVERVIEW_CODE_ALIASES[raw] ?? raw;
+  };
 
   const openDetail = () => {
     if (!selectedDongData) return;
     // 상세 페이지는 항상 종합 지수 기준
-    const overallD = layerDongData["overall"][selectedDongData.adm_cd];
+    const overallD = layerDongData["overall"]?.[selectedDongData.adm_cd];
     setDetailTarget({
       gu: selectedGu,
       dong: selectedDong,
       adm_cd: selectedDongData.adm_cd,
-      adm_cd2: admCdToAdmCd2[selectedDongData.adm_cd],
+      adm_cd2: toOverviewCode(selectedDongData.adm_cd),
       score: overallD?.score ?? 0,
       grade: overallD?.grade ?? 3,
     });
@@ -259,12 +335,12 @@ export default function App() {
     });
     if (!feature) return;
     const adm_cd = feature.properties.adm_cd;
-    const d = layerDongData["overall"][adm_cd];
+    const d = layerDongData["overall"]?.[adm_cd];
     setDetailTarget({
       gu: detailTarget.gu,
       dong: dongName,
       adm_cd,
-      adm_cd2: admCdToAdmCd2[adm_cd],
+      adm_cd2: toOverviewCode(adm_cd),
       score: d?.score ?? 0,
       grade: d?.grade ?? 3,
     });
@@ -278,6 +354,7 @@ export default function App() {
           year={year}
           month={month}
           guDongItems={allDongItems}
+          layerDongData={layerDongData}
           guList={guList}
           selectedGu={detailTarget.gu}
           gradeData={activeGradeData}
@@ -291,13 +368,13 @@ export default function App() {
             const parts = feature.properties.adm_nm.split(" ");
             const dongName = parts[parts.length - 1];
             const adm_cd = feature.properties.adm_cd;
-            const d = layerDongData["overall"][adm_cd];
+            const d = layerDongData["overall"]?.[adm_cd];
 
             setDetailTarget({
               gu,
               dong: dongName,
               adm_cd,
-              adm_cd2: admCdToAdmCd2[adm_cd],
+              adm_cd2: toOverviewCode(adm_cd),
               score: d?.score ?? 0,
               grade: d?.grade ?? 3,
             });
@@ -312,46 +389,101 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="top-search-bar">
-        <div className="top-search-bar__logo">SeoulMate</div>
-        <div className="top-search-bar__subtitle">동네 추천 서비스</div>
+        <div className="top-search-bar__brand">
+          <span className="top-search-bar__logo">
+            <img src={logoUrl} alt="SeoulMate" />
+          </span>
+          <span className="top-search-bar__title">seoul mate</span>
+        </div>
+        <div className="top-search-bar__subtitle"></div>
         <div className="top-search-bar__filters">
-          <FilterSelect
-            value={year}
-            onChange={(e) => {
-              const nextYear = e.target.value;
-              setYear(nextYear);
-              if (Number(nextYear) === 2026 && Number(month) > 4) setMonth("1");
-            }}
-            options={YEARS.map((y) => ({
-              value: String(y),
-              label: `${y}년`,
-              disabled: y > CURRENT_YEAR,
-            }))}
-            placeholder="연도 선택"
-          />
-          <FilterSelect
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            options={MONTHS_BY_YEAR[Number(year)].map((m) => ({
-              value: String(m),
-              label: `${m}월`,
-            }))}
-            placeholder="월 선택"
-          />
-          <FilterSelect
-            value={selectedGu}
-            onChange={handleGuChange}
-            options={guList}
-            placeholder="자치구 선택"
-          />
-          <FilterSelect
-            value={selectedLayer}
-            onChange={(e) => setSelectedLayer(e.target.value)}
-            options={LAYERS}
-            placeholder="레이어 선택"
-            showEmpty={false}
-            className="fsel--layer"
-          />
+          <div className="filter-field">
+            <span className="filter-field__label">연도</span>
+            <FilterSelect
+              value={year}
+              onChange={(e) => {
+                const nextYear = e.target.value;
+                setYear(nextYear);
+                const monthMap =
+                  selectedLayer === "expenses"
+                    ? EXPENSES_MONTHS_BY_YEAR
+                    : MONTHS_BY_YEAR;
+                const availableMonths = monthMap[Number(nextYear)] ?? [];
+                if (
+                  selectedLayer !== "safety" &&
+                  !availableMonths.includes(Number(month))
+                )
+                  setMonth(String(availableMonths.at(-1) ?? 1));
+              }}
+              options={(selectedLayer === "safety" ? SAFETY_YEARS : YEARS).map(
+                (y) => ({
+                  value: String(y),
+                  label: `${y}년`,
+                  disabled: selectedLayer !== "safety" && y > CURRENT_YEAR,
+                }),
+              )}
+              placeholder="연도 선택"
+              disabled={selectedLayer === "custom"}
+              onOpenChange={handleFilterOpen}
+            />
+          </div>
+          {selectedLayer !== "safety" && (
+            <div className="filter-field">
+              <span className="filter-field__label">월</span>
+              <FilterSelect
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                options={(
+                  (selectedLayer === "expenses"
+                    ? EXPENSES_MONTHS_BY_YEAR
+                    : MONTHS_BY_YEAR)[Number(year)] ?? []
+                ).map((m) => ({
+                  value: String(m),
+                  label: `${m}월${m === CURRENT_MONTH && selectedLayer === "expenses" ? " (예측)" : ""}`,
+                }))}
+                placeholder="월 선택"
+                disabled={selectedLayer === "custom"}
+                onOpenChange={handleFilterOpen}
+              />
+            </div>
+          )}
+          <div className="filter-field">
+            <span className="filter-field__label">자치구</span>
+            <FilterSelect
+              value={selectedGu}
+              onChange={handleGuChange}
+              options={guList}
+              placeholder="자치구 선택"
+              onOpenChange={handleFilterOpen}
+            />
+          </div>
+          <div className="filter-field">
+            <span className="filter-field__label">지표</span>
+            <FilterSelect
+              value={selectedLayer}
+              onChange={(e) => {
+                const nextLayer = e.target.value;
+                setSelectedLayer(nextLayer);
+                if (nextLayer === "safety") {
+                  setYear("2024");
+                } else if (selectedLayer === "safety" && nextLayer !== "custom") {
+                  setYear(String(CURRENT_YEAR));
+                  setMonth(DEFAULT_MONTH);
+                } else if (
+                  nextLayer !== "expenses" &&
+                  Number(month) === CURRENT_MONTH
+                ) {
+                  // expenses → 다른 레이어: 이번 달 예측치는 다른 레이어에 없으므로 전월로 복원
+                  setMonth(String(PREV_MONTH));
+                }
+              }}
+              options={LAYERS}
+              placeholder="레이어 선택"
+              showEmpty={false}
+              className="fsel--layer"
+              onOpenChange={handleFilterOpen}
+            />
+          </div>
         </div>
       </header>
       <main className="page-content">
@@ -368,6 +500,11 @@ export default function App() {
             gradeData={activeGradeData}
             onDongClick={handleDongSelect}
           />
+          {loading && (
+            <div className="map-loading">
+              <span className="map-loading__text">데이터를 불러오는 중...</span>
+            </div>
+          )}
           {selectedDongData && (
             <DongInfoCard
               gu={selectedGu}
@@ -379,6 +516,13 @@ export default function App() {
               onClose={() => handleDongSelect(selectedGu, selectedDong)}
             />
           )}
+          <ChatPanel
+            year={year}
+            month={month}
+            onResult={handleChatResult}
+            onReset={handleChatReset}
+            filterOpen={filterOpenCount > 0}
+          />
         </div>
       </main>
     </div>
